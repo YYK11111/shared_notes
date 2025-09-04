@@ -1,0 +1,62 @@
+{
+  "total": 11,
+  "passed": 11,
+  "failed": 0,
+  "details": [
+    {
+      "name": "获取笔记列表",
+      "status": "通过",
+      "duration": "271ms"
+    },
+    {
+      "name": "创建笔记",
+      "status": "通过",
+      "duration": "421ms"
+    },
+    {
+      "name": "获取单条笔记",
+      "status": "通过",
+      "duration": "123ms"
+    },
+    {
+      "name": "更新笔记",
+      "status": "通过",
+      "duration": "388ms"
+    },
+    {
+      "name": "切换笔记置顶状态",
+      "status": "通过",
+      "duration": "438ms"
+    },
+    {
+      "name": "笔记统计概览",
+      "status": "通过",
+      "duration": "356ms"
+    },
+    {
+      "name": "笔记统计详情",
+      "status": "通过",
+      "duration": "143ms"
+    },
+    {
+      "name": "批量修改笔记状态",
+      "status": "通过",
+      "duration": "764ms"
+    },
+    {
+      "name": "批量笔记统计筛选",
+      "status": "通过",
+      "duration": "114ms"
+    },
+    {
+      "name": "批量删除笔记",
+      "status": "通过",
+      "duration": "295ms"
+    },
+    {
+      "name": "删除笔记",
+      "status": "通过",
+      "duration": "295ms"
+    }
+  ]
+}

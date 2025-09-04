@@ -1,0 +1,32 @@
+{
+  "name": "note-sharing-platform",
+  "version": "1.0.0",
+  "description": "个人笔记分享平台 - 包含前后端分离的完整项目结构",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "npm run dev:backend & npm run dev:frontend",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "migrate": "cd backend && npm run migrate",
+    "backup": "cd backend && npm run backup",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  },
+  "keywords": [
+    "notes",
+    "sharing",
+    "platform",
+    "fullstack",
+    "monorepo"
+  ],
+  "author": "个人笔记分享平台开发团队",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=7.0.0"
+  }
+}
