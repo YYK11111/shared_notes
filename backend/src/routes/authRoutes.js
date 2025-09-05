@@ -50,7 +50,7 @@ router.post('/login', async (req, res) => {
     
     // 查询管理员信息
     const [admins] = await pool.execute(
-      'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.username = ?',
+      'SELECT a.*, r.name as role_name, r.code as role_code FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.username = ?',
       [username]
     );
     
@@ -94,7 +94,7 @@ router.post('/login', async (req, res) => {
       {
         id: admin.id,
         username: admin.username,
-        role: admin.role_name,
+        role: admin.role_code,
         permissions: permissions.map(p => p.name)
       },
       process.env.JWT_SECRET,
@@ -122,7 +122,7 @@ router.post('/login', async (req, res) => {
         id: admin.id,
         username: admin.username,
         nickname: admin.nickname,
-        role: admin.role_name,
+        role: admin.role_code,
         permissions: permissions.map(p => p.name)
       }
     }, '登录成功'));
@@ -225,11 +225,11 @@ router.post('/reset-password', async (req, res) => {
     
     // 检查是否是超级管理员
     const [currentAdmin] = await pool.execute(
-      'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
+      'SELECT a.*, r.name as role_name, r.code as role_code FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
       [decoded.id]
     );
     
-    if (currentAdmin.length === 0 || currentAdmin[0].role_name !== '超级管理员') {
+    if (currentAdmin.length === 0 || currentAdmin[0].role_code !== 'super_admin') {
       return res.status(403).json(formatError('只有超级管理员可以重置密码', 403));
     }
     
@@ -287,7 +287,7 @@ router.post('/refresh', async (req, res) => {
     
     // 查询管理员信息，确保用户仍然存在且有效
     const [admins] = await pool.execute(
-      'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
+      'SELECT a.*, r.name as role_name, r.code as role_code FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
       [decoded.id]
     );
     
@@ -310,7 +310,7 @@ router.post('/refresh', async (req, res) => {
       {
         id: admin.id,
         username: admin.username,
-        role: admin.role_name,
+        role: admin.role_code,
         permissions: permissions.map(p => p.name)
       },
       process.env.JWT_SECRET,

@@ -227,37 +227,70 @@ const storeCaptcha = (code) => {
 
 // 验证验证码
 const validateCaptcha = (captchaId, userInput) => {
-  console.log('验证验证码:', { captchaId, userInput });
+  console.log('=========================================================');
+  console.log('[验证码验证调试信息]');
+  console.log('时间:', new Date().toLocaleString());
+  console.log('接收的验证码ID:', captchaId);
+  console.log('验证码ID类型:', typeof captchaId);
+  console.log('验证码ID长度:', captchaId ? captchaId.length : 0);
+  console.log('用户输入的验证码:', userInput);
+  console.log('用户输入的验证码长度:', userInput ? userInput.length : 0);
   
   if (!captchaId || !userInput) {
-    console.log('验证码ID或用户输入为空');
+    console.log('❌ 验证失败: 验证码ID或用户输入为空');
+    console.log('=========================================================');
     return false;
   }
   
   const captcha = captchaStore.get(captchaId);
   if (!captcha) {
-    console.log('未找到对应的验证码，captchaId:', captchaId);
+    console.log('❌ 验证失败: 未找到对应的验证码');
     console.log('当前存储的验证码数量:', captchaStore.size);
+    
+    // 记录当前存储的所有验证码ID（仅用于调试）
+    const storedIds = Array.from(captchaStore.keys());
+    console.log('当前存储的验证码ID列表:', storedIds.length > 0 ? storedIds : '无');
+    
+    // 检查是否是格式问题
+    if (captchaId.length !== 32) {
+      console.log('警告: 验证码ID长度异常，应为32位，实际为:', captchaId.length);
+    }
+    if (!/^[a-f0-9]{32}$/.test(captchaId)) {
+      console.log('警告: 验证码ID格式异常，应为32位16进制字符串');
+    }
+    
+    console.log('=========================================================');
     return false;
   }
   
   // 检查是否过期
-  if (Date.now() > captcha.expiresAt) {
-    console.log('验证码已过期，captchaId:', captchaId);
+  const now = Date.now();
+  const timeRemaining = Math.floor((captcha.expiresAt - now) / 1000);
+  if (now > captcha.expiresAt) {
+    console.log('❌ 验证失败: 验证码已过期');
+    console.log('验证码过期时间:', new Date(captcha.expiresAt).toLocaleString());
+    console.log('当前时间:', new Date().toLocaleString());
+    console.log('过期时间差:', timeRemaining, '秒');
     captchaStore.delete(captchaId);
+    console.log('=========================================================');
     return false;
   }
   
+  console.log('存储的验证码:', captcha.code);
+  console.log('验证码剩余有效期:', timeRemaining, '秒');
+  
   // 验证并删除已使用的验证码
-  console.log('存储的验证码:', captcha.code, '用户输入的验证码:', userInput);
   const isValid = captcha.code.toLowerCase() === userInput.toLowerCase();
   if (isValid) {
-    console.log('验证码验证成功:', captchaId);
+    console.log('✅ 验证码验证成功');
     captchaStore.delete(captchaId);
   } else {
-    console.log('验证码验证失败:', captchaId);
+    console.log('❌ 验证失败: 验证码不匹配');
+    console.log('存储的验证码(小写):', captcha.code.toLowerCase());
+    console.log('用户输入的验证码(小写):', userInput.toLowerCase());
   }
   
+  console.log('=========================================================');
   return isValid;
 };
 

@@ -28,7 +28,7 @@ const authMiddleware = async (req, res, next) => {
     
     // 检查管理员是否存在且状态正常
     const [admins] = await pool.execute(
-      'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
+      'SELECT a.*, r.name as role_name, r.code as role_code FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
       [decoded.id]
     );
     
@@ -43,7 +43,7 @@ const authMiddleware = async (req, res, next) => {
     }
     
     // 如果是超级管理员，直接通过
-    if (admin.role_name === '超级管理员') {
+    if (admin.role_code === 'super_admin') {
       req.user = decoded;
       return next();
     }
@@ -81,7 +81,7 @@ const permissionMiddleware = (requiredPermission) => {
       }
       
       // 如果是超级管理员，拥有所有权限
-      if (req.admin && req.admin.role_name === '超级管理员') {
+      if (req.admin && req.admin.role_code === 'super_admin') {
         return next();
       }
       
@@ -110,7 +110,7 @@ const anyPermissionMiddleware = (requiredPermissions) => {
       }
       
       // 如果是超级管理员，拥有所有权限
-      if (req.admin && req.admin.role_name === '超级管理员') {
+      if (req.admin && req.admin.role_code === 'super_admin') {
         return next();
       }
       

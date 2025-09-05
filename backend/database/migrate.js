@@ -198,7 +198,7 @@ async function initData() {
     // 插入超级管理员角色
     const [roleResult] = await connection.execute(
       'INSERT INTO roles (name, description) VALUES (?, ?) ON DUPLICATE KEY UPDATE name=name',
-      ['超级管理员', '拥有系统所有权限']
+      ['super_admin', '拥有系统所有权限']
     );
     
     const roleId = roleResult.insertId || 1;
@@ -231,9 +231,13 @@ async function initData() {
     }
     
     // 插入默认管理员账户 (密码: admin123)
+    // 先获取super_admin角色的ID
+    const [roleResults] = await connection.execute('SELECT id FROM roles WHERE name = ?', ['super_admin']);
+    const superAdminRoleId = roleResults[0]?.id || roleId;
+    
     await connection.execute(
-      'INSERT INTO admins (username, password, nickname, email, role_id, status) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE username=username',
-      ['admin', '$2b$10$Q4eR8h5W9zY7uF3t1v2cOeKdJfH5gK7jL9pR3sT5uV7bN9mP1qS3', '超级管理员', 'admin@example.com', roleId, 1]
+      'INSERT INTO admins (username, password, nickname, email, role_id, status) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE role_id=?, nickname=?',
+      ['admin', '$2b$10$Q4eR8h5W9zY7uF3t1v2cOeKdJfH5gK7jL9pR3sT5uV7bN9mP1qS3', '超级管理员', 'admin@example.com', superAdminRoleId, 1, superAdminRoleId, '超级管理员']
     );
     
     // 插入一些默认配置

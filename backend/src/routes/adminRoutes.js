@@ -9,7 +9,10 @@ const { successResponse: formatSuccess, errorResponse: formatError, paginatedRes
 // 获取管理员列表
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { page = 1, pageSize = 10, keyword, status, role_id } = req.query;
+    // 确保page和pageSize是有效的数字
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 10;
+    const { keyword, status, role_id } = req.query;
     const offset = (page - 1) * pageSize;
     
     let query = 'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id';
@@ -21,32 +24,49 @@ router.get('/', authMiddleware, async (req, res) => {
       params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
     }
     
-    if (status !== undefined) {
+    // 确保status是有效的数字
+    if (status !== undefined && status !== '' && !isNaN(parseInt(status))) {
       whereClause.push('a.status = ?');
-      params.push(status);
+      params.push(parseInt(status));
     }
     
-    if (role_id) {
+    // 确保role_id是有效的数字
+    if (role_id !== undefined && role_id !== '' && !isNaN(parseInt(role_id))) {
       whereClause.push('a.role_id = ?');
-      params.push(role_id);
+      params.push(parseInt(role_id));
     }
     
     if (whereClause.length > 0) {
       query += ' WHERE ' + whereClause.join(' AND ');
     }
     
-    query += ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(pageSize), parseInt(offset));
+    // 直接在SQL查询中插入值，避免参数化查询的问题
+    query += ` ORDER BY a.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`;
+    console.log('SQL Query:', query);
     
-    const [admins] = await pool.execute(query, params);
+    const [admins] = await pool.query(query);
     
     // 获取总条数
     let countQuery = 'SELECT COUNT(*) as total FROM admins a LEFT JOIN roles r ON a.role_id = r.id';
-    const countParams = params.slice(0, -2); // 移除LIMIT和OFFSET参数
     
     if (whereClause.length > 0) {
       countQuery += ' WHERE ' + whereClause.join(' AND ');
     }
+    
+    // 对于总条数查询，仍然需要使用参数化查询
+    const countParams = [];
+    if (keyword) {
+      countParams.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+    }
+    if (status !== undefined && status !== '' && !isNaN(parseInt(status))) {
+      countParams.push(parseInt(status));
+    }
+    if (role_id !== undefined && role_id !== '' && !isNaN(parseInt(role_id))) {
+      countParams.push(parseInt(role_id));
+    }
+    
+    console.log('Count Query:', countQuery);
+    console.log('Count Params:', countParams);
     
     const [countResult] = await pool.execute(countQuery, countParams);
     const total = countResult[0].total;
@@ -234,8 +254,18 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const admin = admins[0];
     
     // 检查是否是最后一个超级管理员
-    if (admin.role_id === 1) { // 假设角色ID为1的是超级管理员
-      const [superAdmins] = await pool.execute('SELECT COUNT(*) as count FROM admins WHERE role_id = 1');
+    // 首先获取当前管理员的角色信息
+    const [roleInfo] = await pool.execute(
+      'SELECT r.code FROM roles r WHERE r.id = ?',
+      [admin.role_id]
+    );
+    
+    if (roleInfo.length > 0 && roleInfo[0].code === 'super_admin') {
+      // 查询所有超级管理员数量
+      const [superAdmins] = await pool.execute(
+        'SELECT COUNT(*) as count FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE r.code = ?',
+        ['super_admin']
+      );
       
       if (superAdmins[0].count <= 1) {
         return res.status(400).json({ code: 400, data: null, msg: '不能删除最后一个超级管理员' });
@@ -268,20 +298,20 @@ router.post('/batch-delete', authMiddleware, async (req, res) => {
     
     // 检查是否包含超级管理员
     const [superAdmins] = await pool.execute(
-      'SELECT a.id, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id IN (?)',
+      'SELECT a.id, r.code as role_code FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id IN (?)',
       [ids]
     );
     
-    const hasSuperAdmin = superAdmins.some(admin => admin.role_name === '超级管理员');
+    const hasSuperAdmin = superAdmins.some(admin => admin.role_code === 'super_admin');
     
     if (hasSuperAdmin) {
       // 检查超级管理员数量
       const [allSuperAdmins] = await pool.execute(
-        'SELECT COUNT(*) as count FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE r.name = ?',
-        ['超级管理员']
+        'SELECT COUNT(*) as count FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE r.code = ?',
+        ['super_admin']
       );
       
-      if (allSuperAdmins[0].count <= superAdmins.filter(admin => admin.role_name === '超级管理员').length) {
+      if (allSuperAdmins[0].count <= superAdmins.filter(admin => admin.role_code === 'super_admin').length) {
         return res.status(400).json(formatError('不能删除所有超级管理员', 400));
       }
     }

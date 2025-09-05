@@ -1,0 +1,17 @@
+{
+  "code": 200,
+  "data": [
+    {
+      "path": "/dashboard",
+      "name": "Dashboard",
+      "component": "Dashboard",
+      "meta": {
+        "title": "仪表盘",
+        "icon": "dashboard",
+        "requiresAuth": true,
+        "permission": null
+      }
+    }
+  ],
+  "msg": "获取可访问路由成功"
+}

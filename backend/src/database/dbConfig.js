@@ -1,5 +1,5 @@
-const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
+const mysql = require('mysql2/promise');
 // 移除对logger的依赖，打破循环引用
 // const logger = require('../utils/logger');
 

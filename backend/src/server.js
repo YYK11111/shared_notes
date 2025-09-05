@@ -9,8 +9,14 @@ require('dotenv').config();
 // 创建Express应用
 const app = express();
 
-// 配置中间件
-app.use(cors());
+// 配置中间件 - 明确允许暴露自定义响应头
+app.use(cors({
+  exposedHeaders: ['X-Captcha-Id'], // 允许前端访问这个自定义响应头
+  origin: '*', // 开发环境允许所有来源
+  credentials: true, // 允许发送凭证
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(helmet());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -42,6 +48,7 @@ async function initServer() {
     const publicRoutes = require('./routes/publicRoutes');
     const userRoutes = require('./routes/userRoutes');
     const searchRoutes = require('./routes/searchRoutes');
+    const routePermissionRoutes = require('./routes/routePermissionRoutes');
 
     // 使用路由
     app.use('/api/auth', authRoutes);
@@ -53,6 +60,7 @@ async function initServer() {
     app.use('/api/public', publicRoutes);
     app.use('/api/user', userRoutes);
     app.use('/api/search', searchRoutes);
+    app.use('/api/route-permissions', routePermissionRoutes);
 
     // 健康检查接口
     app.get('/api/health', (req, res) => {

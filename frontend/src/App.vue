@@ -1,15 +1,24 @@
-<script setup>
-import { RouterView } from 'vue-router';
-import './style.css';
-</script>
-
 <template>
   <div id="app">
-    <!-- 路由视图，用于渲染匹配的路由组件 -->
-    <RouterView />
+    <router-view />
   </div>
 </template>
 
-<style scoped>
-/* 应用特定的组件样式可以在这里添加 */
+<script setup>
+
+</script>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #2c3e50;
+}
 </style>
