@@ -290,8 +290,17 @@ const formatTime = (time) => {
   line-height: 1.6;
   overflow: hidden;
   display: -webkit-box;
+  display: -moz-box;
+  display: -ms-flexbox;
+  display: -webkit-flex;
+  display: flex;
   -webkit-line-clamp: 2;
+  -moz-line-clamp: 2;
   -webkit-box-orient: vertical;
+  -moz-box-orient: vertical;
+  text-overflow: ellipsis;
+  /* 为确保在不支持line-clamp的浏览器中也能正常显示 */
+  max-height: 45px; /* 2行 * 1.6行高 * 14px字体大小 = 约45px */
 }
 
 .note-card__tags {
