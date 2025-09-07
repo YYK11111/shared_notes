@@ -18,15 +18,18 @@
       
       <!-- 操作按钮 -->
       <div class="note-actions">
-        <el-button @click="handleLike" type="primary" :icon="likeIcon" :loading="likeLoading">
-          {{ isLiked ? '取消喜欢' : '喜欢' }}
-        </el-button>
-        <el-button @click="handleShare" type="default" icon="Share" :loading="shareLoading">
-          分享
-        </el-button>
-        <el-button @click="handleReport" type="default" icon="Warning" :loading="reportLoading">
-          举报
-        </el-button>
+        <el-button @click="handleLike" type="primary" :loading="likeLoading">
+            <el-icon><component :is="likeIcon" /></el-icon>
+            {{ isLiked ? '取消喜欢' : '喜欢' }}
+          </el-button>
+        <el-button @click="handleShare" type="default" :loading="shareLoading">
+            <el-icon><Share /></el-icon>
+            分享
+          </el-button>
+        <el-button @click="handleReport" type="default" :loading="reportLoading">
+            <el-icon><Warning /></el-icon>
+            举报
+          </el-button>
       </div>
       
       <!-- 评论区域 -->
@@ -43,7 +46,7 @@
           ></el-input>
           <div class="comment-submit">
             <el-button 
-              @click="submitComment"
+              @click="handleSubmitComment"
               type="primary"
               :disabled="!commentContent.trim()"
               :loading="commentLoading"
@@ -85,7 +88,7 @@
             <div class="reply-actions">
               <el-button @click="cancelReply">取消</el-button>
               <el-button 
-                @click="submitReply"
+                @click="handleSubmitReply"
                 type="primary"
                 :disabled="!replyContent.trim()"
                 :loading="replyLoading"
@@ -125,9 +128,10 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { getUserNoteDetail, likeNote, getComments, submitComment, likeComment, submitReply, getRelatedNotes } from '@/api/user'
 import dayjs from 'dayjs'
-import marked from 'marked'
+import { marked } from 'marked'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
+import { Star, StarFilled, Share, Warning } from '@element-plus/icons-vue'
 
 // 路由
 const route = useRoute()
@@ -168,7 +172,7 @@ const renderedContent = computed(() => {
     breaks: true
   })
   
-  return marked(note.value.content)
+  return marked.parse(note.value.content)
 })
 
 // 获取笔记详情
@@ -201,7 +205,7 @@ const handleLike = async () => {
   try {
     await likeNote(noteId, { type: 'like' })
     isLiked.value = !isLiked.value
-    likeIcon.value = isLiked.value ? 'StarFilled' : 'Star'
+    likeIcon.value = isLiked.value ? 'IconStarFilled' : 'IconStar'
     note.value.like_count = isLiked.value 
       ? note.value.like_count + 1 
       : note.value.like_count - 1
@@ -265,7 +269,7 @@ const fetchComments = async () => {
 }
 
 // 提交评论
-const submitComment = async () => {
+const handleSubmitComment = async () => {
   if (!commentContent.value.trim()) {
     ElMessage.warning('请输入评论内容')
     return
@@ -321,7 +325,7 @@ const cancelReply = () => {
 }
 
 // 提交回复
-const submitReply = async () => {
+const handleSubmitReply = async () => {
   if (!replyContent.value.trim()) {
     ElMessage.warning('请输入回复内容')
     return

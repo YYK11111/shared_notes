@@ -31,11 +31,11 @@
           <el-button 
             v-if="showConfirmButton"
             :type="confirmButtonType"
-            :icon="confirmButtonIcon"
             @click="handleConfirm"
             :loading="confirmButtonLoading"
             :disabled="disabled"
           >
+            <el-icon v-if="confirmButtonIcon"><component :is="confirmButtonIcon" /></el-icon>
             {{ confirmButtonText }}
           </el-button>
         </span>
@@ -46,7 +46,6 @@
 
 <script setup>
 import { ref, watch, defineProps, defineEmits, nextTick } from 'vue'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 // 定义组件事件
 const emit = defineEmits(['confirm', 'cancel', 'close'])

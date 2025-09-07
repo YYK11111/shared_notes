@@ -22,7 +22,7 @@
         <el-input
           v-model="searchKeyword"
           placeholder="搜索角色名称或描述"
-          prefix-icon="Search"
+          :prefix-icon="Search"
           class="search-input"
           @keyup.enter="handleSearch"
         />

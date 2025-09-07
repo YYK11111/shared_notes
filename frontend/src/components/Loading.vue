@@ -1,7 +1,9 @@
 <template>
   <div v-if="loading" class="loading-overlay" :class="{ 'fullscreen': fullscreen }">
     <div class="loading-content">
-      <el-loading-spinner v-if="type === 'spinner'" :size="size" class="loading-spinner" :color="color" />
+      <el-icon v-if="type === 'spinner'" :size="size" class="loading-spinner" :color="color">
+        <Loading style="animation: rotate 2s linear infinite;" />
+      </el-icon>
       <div v-else-if="type === 'dots'" class="loading-dots">
         <span v-for="i in 3" :key="i" class="loading-dot" :style="{ animationDelay: `${i * 0.2}s` }" />
       </div>
@@ -15,7 +17,7 @@
 
 <script setup>
 import { defineProps } from 'vue'
-import { ElLoading } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 
 // 定义组件属性
 const props = defineProps({
@@ -137,6 +139,15 @@ const props = defineProps({
   border: 4px solid #409eff;
   border-radius: 50%;
   animation: loadingRippleBefore 1.4s infinite ease-in-out;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes loadingRipple {

@@ -6,7 +6,7 @@
         <el-input
           v-model="searchKeyword"
           placeholder="搜索笔记..."
-          prefix-icon="Search"
+          :prefix-icon="Search"
           class="search-input"
           @keyup.enter="handleSearch"
         ></el-input>
@@ -173,7 +173,7 @@ import { useRoute } from 'vue-router'
 import { searchNotes, getHotSearchKeywords, getSearchHistory, addSearchHistory } from '@/api/search'
 import { getUserCategoryList } from '@/api/user'
 import dayjs from 'dayjs'
-import { CircleClose } from '@element-plus/icons-vue'
+import { CircleClose, Search } from '@element-plus/icons-vue'
 
 // 路由
 const route = useRoute()

@@ -24,7 +24,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "获取反馈列表成功",
+  "msg": "获取反馈列表成功",
   "data": {
     "list": [
       {
@@ -61,7 +61,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "获取反馈详情成功",
+  "msg": "获取反馈详情成功",
   "data": {
     "id": "number",
     "type": "string",
@@ -99,7 +99,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "反馈提交成功，感谢您的建议！",
+  "msg": "反馈提交成功，感谢您的建议！",
   "data": {"id": "number"}
 }
 ```
@@ -126,7 +126,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "更新状态成功",
+  "msg": "更新状态成功",
   "data": null
 }
 ```
@@ -154,7 +154,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "回复成功",
+  "msg": "回复成功",
   "data": null
 }
 ```
@@ -179,7 +179,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "删除反馈成功",
+  "msg": "删除反馈成功",
   "data": null
 }
 ```
@@ -202,7 +202,7 @@ keyword: string // 关键词搜索（内容或联系方式）
 ```json
 {
   "code": 200,
-  "message": "获取统计数据成功",
+  "msg": "获取统计数据成功",
   "data": {
     "total": "number", // 总反馈数
     "pending": "number", // 待处理数
@@ -227,5 +227,5 @@ keyword: string // 关键词搜索（内容或联系方式）
 
 ## 响应格式
 - 所有接口返回统一的JSON格式
-- 包含code、message和data三个字段
+- 包含code、msg和data三个字段
 - code为200表示成功，其他值表示失败

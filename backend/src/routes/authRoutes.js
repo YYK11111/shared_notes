@@ -57,7 +57,7 @@ router.post('/login', async (req, res) => {
     if (admins.length === 0) {
       // 记录失败日志 - 使用null而不是'unknown'，因为admin_id是整数类型
       await logLogin(null, false, { username, ip: req.ip, userAgent: req.headers['user-agent'] });
-      return res.json(formatError('用户名或密码错误', 401));
+      return res.status(401).json(formatError('用户名或密码错误', 401));
     }
     
     const admin = admins[0];
@@ -65,7 +65,7 @@ router.post('/login', async (req, res) => {
     // 检查账户状态
     if (admin.status === 0) {
       await logLogin(admin.id, false, { username, ip: req.ip, userAgent: req.headers['user-agent'] });
-    return res.json(formatError('账户已禁用，请联系超级管理员', 401));
+      return res.status(401).json(formatError('账户已禁用，请联系超级管理员', 401));
     }
     
     // 验证密码
@@ -75,7 +75,7 @@ router.post('/login', async (req, res) => {
       // 记录失败日志
       await logLogin(admin.id, false, { username, ip: req.ip, userAgent: req.headers['user-agent'] });
       
-      return res.json(formatError('用户名或密码错误', 401));
+      return res.status(401).json(formatError('用户名或密码错误', 401));
     }
     
     // 记录登录成功日志

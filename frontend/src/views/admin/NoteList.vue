@@ -6,26 +6,25 @@
           <h2 class="page-title">笔记管理</h2>
           <div class="header-actions">
             <el-button type="primary" @click="handleCreateNote">
-              <el-icon><Plus /></el-icon>
+              <el-icon>
+                <Plus />
+              </el-icon>
               新建笔记
             </el-button>
             <el-button @click="handleBatchDelete" :disabled="selectedNotes.length === 0">
-              <el-icon><Delete /></el-icon>
+              <el-icon>
+                <Delete />
+              </el-icon>
               批量删除
             </el-button>
           </div>
         </div>
       </template>
-      
+
       <!-- 搜索和筛选 -->
       <div class="search-filter-container">
-        <el-input
-          v-model="searchKeyword"
-          placeholder="搜索笔记标题或内容"
-          prefix-icon="Search"
-          class="search-input"
-          @keyup.enter="handleSearch"
-        />
+        <el-input v-model="searchKeyword" placeholder="搜索笔记标题或内容" :prefix-icon="Search" class="search-input"
+          @keyup.enter="handleSearch" />
         <el-select v-model="categoryFilter" placeholder="选择分类" class="filter-select">
           <el-option label="全部" value="" />
           <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
@@ -37,28 +36,15 @@
           <el-option label="审核中" value="reviewing" />
           <el-option label="已拒绝" value="rejected" />
         </el-select>
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          class="date-filter"
-          @change="handleDateFilter"
-        />
+        <el-date-picker v-model="dateRange" type="daterange" range-separator="至" start-placeholder="开始日期"
+          end-placeholder="结束日期" class="date-filter" @change="handleDateFilter" />
         <el-button type="primary" @click="handleSearch" class="search-button">搜索</el-button>
         <el-button @click="resetFilters" class="reset-button">重置</el-button>
       </div>
-      
+
       <!-- 笔记列表 -->
-      <el-table
-        v-loading="loading"
-        :data="notesData"
-        style="width: 100%"
-        border
-        @selection-change="handleSelectionChange"
-        :row-key="(row) => row.id"
-      >
+      <el-table v-loading="loading" :data="notesData" style="width: 100%" border
+        @selection-change="handleSelectionChange" :row-key="(row) => row.id">
         <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="80" sortable />
         <el-table-column prop="title" label="标题" min-width="200">
@@ -98,18 +84,12 @@
           </template>
         </el-table-column>
       </el-table>
-      
+
       <!-- 分页 -->
       <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="totalCount"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
+        <el-pagination v-model:current-page="currentPage" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper" :total="totalCount" @size-change="handleSizeChange"
+          @current-change="handleCurrentChange" />
       </div>
     </el-card>
   </div>
@@ -119,7 +99,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Plus, Delete, Search } from '@element-plus/icons-vue'
+import { Plus, Delete } from '@element-plus/icons-vue'
+
 import { getNoteList, deleteNote, approveNote, rejectNote } from '@/api/category'
 
 const router = useRouter()
@@ -153,7 +134,7 @@ const fetchNotes = async () => {
       start_date: dateRange.value[0] ? dayjs(dateRange.value[0]).format('YYYY-MM-DD') : undefined,
       end_date: dateRange.value[1] ? dayjs(dateRange.value[1]).format('YYYY-MM-DD') : undefined
     }
-    
+
     const response = await getNoteList(params)
     notesData.value = response.data?.items || []
     totalCount.value = response.data?.total || 0
@@ -249,7 +230,7 @@ const handleDeleteNote = async (id) => {
         type: 'warning'
       }
     )
-    
+
     await deleteNote(id)
     ElMessage.success('笔记删除成功')
     fetchNotes()
@@ -267,7 +248,7 @@ const handleBatchDelete = async () => {
     ElMessage.warning('请选择要删除的笔记')
     return
   }
-  
+
   try {
     await ElMessageBox.confirm(
       `确定要删除选中的 ${selectedNotes.value.length} 条笔记吗？此操作不可恢复。`,
@@ -278,12 +259,12 @@ const handleBatchDelete = async () => {
         type: 'warning'
       }
     )
-    
+
     const ids = selectedNotes.value.map(note => note.id)
     // 这里应该调用批量删除API
     // 为了演示，我们模拟删除操作
     await new Promise(resolve => setTimeout(resolve, 500))
-    
+
     ElMessage.success(`成功删除 ${selectedNotes.value.length} 条笔记`)
     selectedNotes.value = []
     fetchNotes()
@@ -307,7 +288,7 @@ const handleApproveNote = async (id) => {
         type: 'success'
       }
     )
-    
+
     await approveNote(id)
     ElMessage.success('笔记审核通过')
     fetchNotes()
@@ -332,7 +313,7 @@ const handleRejectNote = async (id) => {
         inputErrorMessage: '拒绝原因长度在 1 到 200 个字符'
       }
     )
-    
+
     await rejectNote(id, { reason })
     ElMessage.success('笔记已拒绝')
     fetchNotes()
@@ -423,11 +404,13 @@ onMounted(() => {
   width: 300px;
 }
 
-.filter-select, .date-filter {
+.filter-select,
+.date-filter {
   width: 150px;
 }
 
-.search-button, .reset-button {
+.search-button,
+.reset-button {
   white-space: nowrap;
 }
 
@@ -452,25 +435,27 @@ onMounted(() => {
   .note-list-page {
     padding: 1rem;
   }
-  
+
   .card-header {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .header-actions {
     justify-content: flex-start;
   }
-  
+
   .search-filter-container {
     flex-direction: column;
     align-items: stretch;
   }
-  
-  .search-input, .filter-select, .date-filter {
+
+  .search-input,
+  .filter-select,
+  .date-filter {
     width: 100%;
   }
-  
+
   .pagination-container {
     justify-content: center;
   }

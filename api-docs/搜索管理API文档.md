@@ -17,7 +17,7 @@
 ```json
 {
   "code": 200,
-  "message": "搜索索引重建成功",
+  "msg": "搜索索引重建成功",
   "data": null
 }
 ```
@@ -40,7 +40,7 @@
 ```json
 {
   "code": 200,
-  "message": "获取索引状态成功",
+  "msg": "获取索引状态成功",
   "data": {
     "index_exists": "boolean", // 索引是否存在
     "indexed_count": "number", // 已索引的笔记数量
@@ -68,7 +68,7 @@ pageSize: number // 每页条数，默认为20
 ```json
 {
   "code": 200,
-  "message": "获取搜索屏蔽列表成功",
+  "msg": "获取搜索屏蔽列表成功",
   "data": {
     "list": [
       {
@@ -106,7 +106,7 @@ pageSize: number // 每页条数，默认为20
 ```json
 {
   "code": 200,
-  "message": "添加到屏蔽列表成功",
+  "msg": "添加到屏蔽列表成功",
   "data": null
 }
 ```
@@ -135,7 +135,7 @@ pageSize: number // 每页条数，默认为20
 ```json
 {
   "code": 200,
-  "message": "从屏蔽列表移除成功",
+  "msg": "从屏蔽列表移除成功",
   "data": null
 }
 ```
@@ -166,7 +166,7 @@ endDate: string // 结束日期
 ```json
 {
   "code": 200,
-  "message": "获取搜索日志成功",
+  "msg": "获取搜索日志成功",
   "data": {
     "list": [
       {
@@ -203,7 +203,7 @@ limit: number // 返回数量，默认为20
 ```json
 {
   "code": 200,
-  "message": "获取热门搜索词成功",
+  "msg": "获取热门搜索词成功",
   "data": [
     {
       "keyword": "string",
@@ -213,6 +213,124 @@ limit: number // 返回数量，默认为20
   ]
 }
 ```
+
+---
+
+### 8. 获取搜索配置
+
+**路径**: `GET /api/config/search`
+
+**功能**: 获取搜索相关配置信息
+
+**参数**: 无
+
+**返回**: 
+```json
+{
+  "code": 200,
+  "msg": "获取搜索配置成功",
+  "data": {
+    "sensitive_words": ["敏感词1", "敏感词2"],
+    "suggest_count": 5,
+    "title_weight": 2,
+    "content_weight": 1,
+    "enable_suggest": true,
+    "enable_trending": true
+  }
+}
+```
+
+**错误码**: 
+- 500: 获取搜索配置失败，请稍后重试
+
+---
+
+### 9. 更新搜索配置
+
+**路径**: `PUT /api/config/search`
+
+**功能**: 更新搜索相关配置
+
+**参数**: 
+```json
+{
+  "sensitive_words": ["敏感词1", "敏感词2"],
+  "suggest_count": 5,    // 1-20之间
+  "title_weight": 2,     // 大于等于1
+  "content_weight": 1,   // 大于等于1
+  "enable_suggest": true,
+  "enable_trending": true
+}
+```
+
+**返回**: 
+```json
+{
+  "code": 200,
+  "msg": "更新搜索配置成功",
+  "data": null
+}
+```
+
+**错误码**: 
+- 400: 搜索建议数量应在1-20之间
+- 400: 标题权重应大于等于1
+- 400: 内容权重应大于等于1
+- 500: 更新搜索配置失败，请稍后重试
+
+---
+
+### 10. 添加敏感词
+
+**路径**: `POST /api/config/search/sensitive-word`
+
+**功能**: 添加单个敏感词到系统配置中
+
+**参数**: 
+```json
+{
+  "word": "string" // 敏感词内容
+}
+```
+
+**返回**: 
+```json
+{
+  "code": 200,
+  "msg": "敏感词添加成功",
+  "data": {"word": "string"}
+}
+```
+
+**错误码**: 
+- 400: 请输入有效的敏感词
+- 400: 该敏感词已存在
+- 500: 添加敏感词失败，请稍后重试
+
+---
+
+### 11. 删除敏感词
+
+**路径**: `DELETE /api/config/search/sensitive-word/:word`
+
+**功能**: 从系统配置中删除指定的敏感词
+
+**参数**: 
+- `word`: URL参数，要删除的敏感词
+
+**返回**: 
+```json
+{
+  "code": 200,
+  "msg": "敏感词删除成功",
+  "data": null
+}
+```
+
+**错误码**: 
+- 404: 敏感词列表为空
+- 404: 未找到该敏感词
+- 500: 删除敏感词失败，请稍后重试
 
 ## 权限说明
 - 所有接口均需要管理员权限
@@ -226,5 +344,5 @@ limit: number // 返回数量，默认为20
 
 ## 响应格式
 - 所有接口返回统一的JSON格式
-- 包含code、message和data三个字段
+- 包含code、msg和data三个字段
 - code为200表示成功，其他值表示失败

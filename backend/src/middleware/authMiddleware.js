@@ -42,9 +42,12 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ code: 401, data: null, msg: '管理员账户已被禁用' });
     }
     
-    // 如果是超级管理员，直接通过
+    // 如果是超级管理员，设置所有信息
     if (admin.role_code === 'super_admin') {
       req.user = decoded;
+      req.admin = admin;
+      // 超级管理员拥有所有权限
+      req.permissions = ['article_manage', 'category_manage', 'user_manage', 'system_config', 'search_manage', 'feedback_manage', 'system_monitor', 'admin_manage', 'log_view'];
       return next();
     }
     

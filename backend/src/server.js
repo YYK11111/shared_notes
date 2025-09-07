@@ -27,7 +27,7 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // 配置请求速率限制
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15分钟
-  max: 1000, // 每个IP最多1000个请求（开发环境放宽限制）
+  max: 5000, // 开发环境进一步放宽限制，每个IP最多5000个请求
   standardHeaders: true,
   legacyHeaders: false,
 });

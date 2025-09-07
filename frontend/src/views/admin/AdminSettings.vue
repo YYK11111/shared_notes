@@ -57,11 +57,11 @@
                   :limit="1"
                   :on-exceed="handleAvatarExceed"
                 >
-                  <el-icon><Plus /></el-icon>
+                  <el-icon><IconPlus /></el-icon>
                   <template #file="{ file }">
                     <img :src="file.url" alt="头像" class="avatar-preview" />
                     <div class="el-upload__file-action">
-                      <el-icon @click="handleRemoveAvatar"><Delete /></el-icon>
+                      <el-icon @click="handleRemoveAvatar"><IconDelete /></el-icon>
                     </div>
                   </template>
                 </el-upload>
@@ -127,7 +127,7 @@
               </template>
               <div class="security-item-content">
                 <div class="current-device">
-                  <el-icon><Monitor /></el-icon>
+                  <el-icon><IconComputer /></el-icon>
                   <span class="device-info">当前设备 - {{ getCurrentDeviceInfo() }}</span>
                 </div>
                 <div class="other-devices">
@@ -244,7 +244,6 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { Plus, Delete, Monitor } from '@element-plus/icons-vue'
 import { getAdminProfile, updateAdminProfile, changeAdminPassword, getAdminSecuritySettings, updateAdminSecuritySettings, getAdminNotificationSettings, updateAdminNotificationSettings } from '@/api/admin'
 import { uploadImage } from '@/api/upload'
 

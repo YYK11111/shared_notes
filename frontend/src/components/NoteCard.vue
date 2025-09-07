@@ -56,19 +56,19 @@
         <!-- 统计信息 -->
         <div class="note-card__stats">
           <div v-if="showViews" class="note-card__stat">
-            <el-icon :size="14"><View /></el-icon>
+            <el-icon :size="14"><IconView /></el-icon>
             <span>{{ note.views || 0 }}</span>
           </div>
           <div v-if="showLikes" class="note-card__stat">
-            <el-icon :size="14"><Like /></el-icon>
+            <el-icon :size="14"><IconLike /></el-icon>
             <span>{{ note.likes || 0 }}</span>
           </div>
           <div v-if="showComments" class="note-card__stat">
-            <el-icon :size="14"><ChatDotRound /></el-icon>
+            <el-icon :size="14"><IconMessage /></el-icon>
             <span>{{ note.comments || 0 }}</span>
           </div>
           <div v-if="showCollects" class="note-card__stat">
-            <el-icon :size="14"><Star /></el-icon>
+            <el-icon :size="14"><IconStar /></el-icon>
             <span>{{ note.collects || 0 }}</span>
           </div>
         </div>
@@ -84,7 +84,6 @@
 
 <script setup>
 import { ref, computed, defineProps, defineEmits } from 'vue'
-import { View, Like, ChatDotRound, Star } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'

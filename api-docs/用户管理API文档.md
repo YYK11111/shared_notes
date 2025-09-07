@@ -17,7 +17,7 @@
 ```json
 {
   "code": 200,
-  "message": "获取首页数据成功",
+  "msg": "获取首页数据成功",
   "data": {
     "systemConfig": {"key": "value"}, // 系统配置
     "hotNotes": [/* 热门笔记列表 */],
@@ -42,7 +42,7 @@
 ```json
 {
   "code": 200,
-  "message": "获取分类列表成功",
+  "msg": "获取分类列表成功",
   "data": [
     {
       "id": "number",
@@ -74,7 +74,7 @@ pageSize: number // 每页条数，默认为10
 ```json
 {
   "code": 200,
-  "message": "获取分类笔记成功",
+  "msg": "获取分类笔记成功",
   "data": {
     "list": [
       {
@@ -111,7 +111,7 @@ pageSize: number // 每页条数，默认为10
 ```json
 {
   "code": 200,
-  "message": "获取笔记详情成功",
+  "msg": "获取笔记详情成功",
   "data": {
     "id": "number",
     "title": "string",
@@ -136,20 +136,23 @@ pageSize: number // 每页条数，默认为10
 
 **路径**: `GET /api/user/search`
 
-**功能**: 搜索笔记，支持关键词过滤、敏感词过滤
+**功能**: 搜索笔记，支持关键词过滤、敏感词过滤、分类筛选和时间范围筛选
 
 **参数**: 
 ```
 keyword: string, // 搜索关键词
 page: number, // 页码，默认为1
-pageSize: number // 每页条数，默认为10
+pageSize: number, // 每页条数，默认为10
+sortBy: string, // 排序方式，默认为relevance
+categoryIds: string, // 分类ID筛选（多个ID用逗号分隔）
+timeRange: string // 时间范围筛选（可选值：30days, 90days）
 ```
 
 **返回**: 
 ```json
 {
   "code": 200,
-  "message": "搜索成功",
+  "msg": "搜索成功",
   "data": {
     "list": [
       {
@@ -170,21 +173,28 @@ pageSize: number // 每页条数，默认为10
 }
 ```
 
+**错误码**: 
+- 400: 搜索关键词不能为空
+
 ---
 
 ### 6. 获取热门搜索词
 
-**路径**: `GET /api/user/search/hot`
+**路径**: `GET /api/search/hot-words`
 
-**功能**: 获取近7天热门搜索词
+**功能**: 获取热门搜索词列表
 
-**参数**: 无
+**参数**: 
+```
+timeRange: string, // 时间范围，默认为7d（7天）
+limit: number // 返回数量，默认为20
+```
 
 **返回**: 
 ```json
 {
   "code": 200,
-  "message": "获取热门搜索词成功",
+  "msg": "获取热门搜索词成功",
   "data": [
     {
       "keyword": "string",
@@ -215,7 +225,7 @@ pageSize: number // 每页条数，默认为10
 ```json
 {
   "code": 200,
-  "message": "反馈提交成功，感谢您的建议！",
+  "msg": "反馈提交成功，感谢您的建议！",
   "data": {"id": "number"}
 }
 ```
@@ -237,7 +247,7 @@ pageSize: number // 每页条数，默认为10
 ```json
 {
   "code": 200,
-  "message": "获取系统配置成功",
+  "msg": "获取系统配置成功",
   "data": {
     "key1": "value1",
     "key2": "value2",
@@ -257,5 +267,5 @@ pageSize: number // 每页条数，默认为10
 
 ## 响应格式
 - 所有接口返回统一的JSON格式
-- 包含code、message和data三个字段
+- 包含code、msg和data三个字段
 - code为200表示成功，其他值表示失败

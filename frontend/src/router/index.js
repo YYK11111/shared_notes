@@ -24,12 +24,12 @@ const staticRoutes = [
       {
         path: 'categories/:id',
         name: 'CategoryNotes',
-        component: () => import('@/views/front/CategoryNotes.vue')
+        component: () => import('@/views/front/CategoryDetail.vue')
       },
       {
         path: 'search',
         name: 'Search',
-        component: () => import('@/views/front/Search.vue')
+        component: () => import('@/views/front/SearchResult.vue')
       }
     ]
   },
@@ -60,7 +60,7 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  const requiresAuth = to.matched.some(record => record.meta.requiresAuth !== false)
+  const requiresAuth = to.matched.some(record => record.meta.requiresAuth === true)
   
   // 未登录访问需要认证的页面，跳转到登录页
   if (requiresAuth && !authStore.isLoggedIn) {
@@ -82,10 +82,24 @@ router.beforeEach(async (to, from, next) => {
         
         // 动态添加路由
         accessibleRoutes.forEach(route => {
+          // 使用直接导入函数替代模板字符串导入，避免路径解析问题
+          const getComponent = (componentName) => {
+            switch(componentName) {
+              case 'Dashboard': return () => import('@/views/admin/Dashboard.vue');
+              case 'Admins': return () => import('@/views/admin/AdminUserList.vue');
+              case 'Notes': return () => import('@/views/admin/NoteList.vue');
+              case 'Categories': return () => import('@/views/admin/CategoryList.vue');
+              case 'Feedbacks': return () => import('@/views/admin/FeedbackList.vue');
+              case 'Logs': return () => import('@/views/admin/Dashboard.vue'); // 暂无Logs组件
+              case 'System': return () => import('@/views/admin/Config.vue');
+              default: return () => import('@/views/admin/Dashboard.vue');
+            }
+          };
+          
           adminRoutes.children.push({
             path: route.path,
             name: route.name,
-            component: () => import(`@/views/admin/${route.component}.vue`),
+            component: getComponent(route.component),
             meta: route.meta
           })
         })

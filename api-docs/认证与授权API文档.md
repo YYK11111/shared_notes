@@ -9,11 +9,16 @@
 
 **路径**: `GET /api/auth/captcha`
 
+**说明**: 实际返回的是图片文件(SVG格式)，响应头中包含X-Captcha-Id用于后续验证
+
 **功能**: 生成并返回验证码图片
 
 **参数**: 无
 
-**返回**: 图片文件 (PNG格式)
+**返回**: 图片文件 (SVG格式)
+
+**响应头**: 
+- `X-Captcha-Id`: 验证码ID，用于后续登录验证
 
 **示例**: 直接访问接口获取验证码图片
 
@@ -23,6 +28,8 @@
 
 **路径**: `POST /api/auth/login`
 
+**说明**: 成功登录后返回的admin对象包含id、username、nickname、role和permissions数组
+
 **功能**: 用户登录认证，验证成功后返回JWT令牌
 
 **参数**: 
@@ -31,7 +38,7 @@
   "username": "string", // 用户名
   "password": "string", // 密码
   "captcha": "string", // 验证码
-  "captchaToken": "string" // 验证码Token
+  "captchaId": "string" // 验证码ID（从获取验证码接口的X-Captcha-Id响应头中获取）
 }
 ```
 
@@ -39,17 +46,16 @@
 ```json
 {
   "code": 200,
-  "message": "登录成功",
+  "msg": "登录成功",
   "data": {
     "token": "string", // JWT令牌
     "refreshToken": "string", // 刷新令牌
-    "user": {
+    "admin": {
       "id": "number",
       "username": "string",
+      "nickname": "string",
       "role": "string",
-      "avatar": "string",
-      "lastLoginTime": "string",
-      "lastLoginIp": "string"
+      "permissions": ["string"]
     }
   }
 }
@@ -73,7 +79,7 @@
 ```json
 {
   "code": 200,
-  "message": "登出成功",
+  "msg": "登出成功",
   "data": null
 }
 ```
@@ -89,8 +95,8 @@
 **参数**: 
 ```json
 {
-  "oldPassword": "string", // 原密码
-  "newPassword": "string" // 新密码
+  "currentPassword": "string", // 当前密码
+  "newPassword": "string" // 新密码（长度不少于6位）
 }
 ```
 
@@ -98,7 +104,7 @@
 ```json
 {
   "code": 200,
-  "message": "密码修改成功",
+  "msg": "密码修改成功，请重新登录",
   "data": null
 }
 ```
@@ -113,13 +119,15 @@
 
 **路径**: `POST /api/auth/reset-password`
 
-**功能**: 超级管理员重置指定用户的密码
+**说明**: 此接口需要超级管理员权限
+
+**功能**: 超级管理员重置指定管理员的密码
 
 **参数**: 
 ```json
 {
-  "userId": "number", // 用户ID
-  "newPassword": "string" // 新密码
+  "adminId": "number", // 管理员ID
+  "newPassword": "string" // 新密码（长度不少于6位）
 }
 ```
 
@@ -127,7 +135,7 @@
 ```json
 {
   "code": 200,
-  "message": "密码重置成功",
+  "msg": "密码重置成功",
   "data": null
 }
 ```
@@ -143,20 +151,17 @@
 
 **路径**: `POST /api/auth/refresh`
 
-**功能**: 使用刷新令牌获取新的访问令牌
+**说明**: 此接口通过请求体传递数据，而不是仅通过Authorization头
 
-**参数**: 
-```json
-{
-  "refreshToken": "string" // 刷新令牌
-}
-```
+**功能**: 使用现有令牌获取新的访问令牌
+
+**参数**: 无（令牌通过Authorization头传递，格式为Bearer {token}）
 
 **返回**: 
 ```json
 {
   "code": 200,
-  "message": "令牌刷新成功",
+  "msg": "令牌刷新成功",
   "data": {
     "token": "string", // 新的JWT令牌
     "refreshToken": "string" // 新的刷新令牌

@@ -97,7 +97,7 @@
         <div class="activity-list">
           <div v-for="activity in recentActivities" :key="activity.id" class="activity-item">
             <div class="activity-icon" :class="getActivityIcon(activity.type)">
-              <el-icon>{{ getActivityIconComponent(activity.type) }}</el-icon>
+              <el-icon><component :is="getActivityIconComponent(activity.type)" /></el-icon>
             </div>
             <div class="activity-content">
               <div class="activity-text">{{ activity.description }}</div>
@@ -174,13 +174,13 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 import Chart from 'chart.js/auto'
+import { Document, Collection, User, Message, Edit, Check, Delete } from '@element-plus/icons-vue'
 
 // 使用插件
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
-// 导入图标
-import { Document, Collection, User, MessageRound, Edit, Delete, Check, AlertTriangle, Plus } from '@element-plus/icons-vue'
+// 使用自动导入的图标，无需手动导入
 
 // 状态管理
 const authStore = useAuthStore()
@@ -330,13 +330,13 @@ const getActivityIcon = (type) => {
 // 获取活动图标组件
 const getActivityIconComponent = (type) => {
   const iconMap = {
-    create: Edit,
-    update: Check,
-    delete: Delete,
-    feedback: MessageRound,
-    login: User
+    create: 'Edit',
+    update: 'Check',
+    delete: 'Delete',
+    feedback: 'MessageRound',
+    login: 'User'
   }
-  return iconMap[type] || MessageRound
+  return iconMap[type] || 'MessageRound'
 }
 
 // 格式化相对时间

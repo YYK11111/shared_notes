@@ -17,10 +17,10 @@ export const getUserNoteDetail = (id) => {
   })
 }
 
-// 获取前台分类列表
-export const getUserCategoryList = () => {
+// 获取分类详情
+export const getUserCategoryDetail = (categoryId) => {
   return request({
-    url: '/user/categories',
+    url: `/user/categories/${categoryId}`,
     method: 'get'
   })
 }
@@ -31,6 +31,59 @@ export const getNotesByCategory = (categoryId, params) => {
     url: `/user/categories/${categoryId}/notes`,
     method: 'get',
     params
+  })
+}
+
+// 获取用户分类列表
+export const getUserCategoryList = (params) => {
+  return request({
+    url: '/user/categories',
+    method: 'get',
+    params
+  })
+}
+
+// 喜欢/取消喜欢笔记
+export const likeNote = (id, data) => {
+  return request({
+    url: `/user/notes/${id}/like`,
+    method: 'post',
+    data
+  })
+}
+
+// 获取评论列表
+export const getComments = (noteId, params) => {
+  return request({
+    url: `/user/notes/${noteId}/comments`,
+    method: 'get',
+    params
+  })
+}
+
+// 提交评论
+export const submitComment = (noteId, data) => {
+  return request({
+    url: `/user/notes/${noteId}/comments`,
+    method: 'post',
+    data
+  })
+}
+
+// 点赞/取消点赞评论
+export const likeComment = (commentId) => {
+  return request({
+    url: `/user/comments/${commentId}/like`,
+    method: 'post'
+  })
+}
+
+// 提交回复
+export const submitReply = (commentId, data) => {
+  return request({
+    url: `/user/comments/${commentId}/reply`,
+    method: 'post',
+    data
   })
 }
 
@@ -56,6 +109,15 @@ export const getHotNotes = (params) => {
 export const getRecommendNotes = (params) => {
   return request({
     url: '/user/recommend-notes',
+    method: 'get',
+    params
+  })
+}
+
+// 获取相关笔记
+export const getRelatedNotes = (noteId, params) => {
+  return request({
+    url: `/user/notes/${noteId}/related`,
     method: 'get',
     params
   })

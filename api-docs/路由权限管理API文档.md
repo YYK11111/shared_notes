@@ -17,7 +17,7 @@
 ```json
 {
   "code": 200,
-  "message": "获取可访问路由成功",
+  "msg": "获取可访问路由成功",
   "data": [
     {
       "path": "string",

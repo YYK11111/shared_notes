@@ -15,12 +15,7 @@
 
 <script setup>
 import { defineProps } from 'vue'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
-
-// 注册所有图标，以便在组件中使用
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  defineProps({ [key]: { type: Object } })
-}
+// 由于我们已经在main.js中全局注册了所有图标，这里不需要再次导入
 
 // 定义组件属性
 const props = defineProps({

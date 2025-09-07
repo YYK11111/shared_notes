@@ -23,7 +23,7 @@
           <el-input
             v-model="searchKeyword"
             placeholder="搜索笔记标题..."
-            prefix-icon="Search"
+            :prefix-icon="Search"
             class="search-input"
             @keyup.enter="handleSearch"
           ></el-input>
@@ -112,13 +112,14 @@
 
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import { getUserCategoryDetail, getNotesByCategory, getUserCategoryList } from '@/api/user'
 import dayjs from 'dayjs'
 
 // 路由
 const route = useRoute()
-const categoryId = route.params.id
+const categoryId = ref(route.params.id)
 
 // 分类数据
 const category = ref(null)
@@ -141,7 +142,7 @@ const pagination = ref({
 // 获取分类详情
 const fetchCategoryDetail = async () => {
   try {
-    const res = await getUserCategoryDetail(categoryId)
+    const res = await getUserCategoryDetail(categoryId.value)
     category.value = res.data
   } catch (error) {
     console.error('获取分类详情失败:', error)
@@ -153,7 +154,7 @@ const fetchCategoryDetail = async () => {
 const fetchNotesByCategory = async () => {
   loading.value = true
   try {
-    const res = await getNotesByCategory(categoryId, {
+    const res = await getNotesByCategory(categoryId.value, {
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
       keyword: searchKeyword.value,
@@ -176,7 +177,7 @@ const fetchRelatedCategories = async () => {
     const res = await getUserCategoryList()
     // 排除当前分类，并按笔记数量排序
     relatedCategories.value = res.data
-      .filter(cat => cat.id !== categoryId)
+      .filter(cat => cat.id !== categoryId.value)
       .sort((a, b) => b.note_count - a.note_count)
       .slice(0, 5)
   } catch (error) {
@@ -227,7 +228,7 @@ const handleCurrentChange = (page) => {
 // 监听路由参数变化
 watch(() => route.params.id, (newId) => {
   if (newId) {
-    categoryId = newId
+    categoryId.value = newId
     fetchCategoryDetail()
     fetchNotesByCategory()
     fetchRelatedCategories()

@@ -20,12 +20,12 @@
       <!-- 搜索和筛选 -->
       <div class="search-filter-container">
         <el-input
-          v-model="searchKeyword"
-          placeholder="搜索用户名或邮箱"
-          prefix-icon="Search"
-          class="search-input"
-          @keyup.enter="handleSearch"
-        />
+            v-model="searchKeyword"
+            placeholder="搜索用户名或邮箱"
+            :prefix-icon="Search"
+            class="search-input"
+            @keyup.enter="handleSearch"
+          />
         <el-select v-model="roleFilter" placeholder="选择角色" class="filter-select">
           <el-option label="全部" value="" />
           <el-option v-for="role in roles" :key="role.id" :label="role.name" :value="role.id" />

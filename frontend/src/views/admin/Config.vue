@@ -6,11 +6,11 @@
           <h2 class="page-title">系统配置</h2>
           <div class="header-actions">
             <el-button type="primary" @click="handleSaveConfig">
-              <el-icon><Check /></el-icon>
+              <el-icon><IconCheck /></el-icon>
               保存配置
             </el-button>
             <el-button @click="handleResetConfig">
-              <el-icon><Refresh /></el-icon>
+              <el-icon><IconRefresh /></el-icon>
               重置
             </el-button>
           </div>
@@ -95,15 +95,15 @@
           <div class="backup-section">
             <div class="backup-actions">
               <el-button type="primary" @click="handleBackup">
-                <el-icon><Download /></el-icon>
+                <el-icon><IconDownload /></el-icon>
                 创建备份
               </el-button>
               <el-button @click="handleRestore" :disabled="backups.length === 0">
-                <el-icon><Upload /></el-icon>
+                <el-icon><IconUpload /></el-icon>
                 恢复备份
               </el-button>
               <el-button type="danger" @click="handleCleanBackups">
-                <el-icon><Delete /></el-icon>
+                <el-icon><IconDelete /></el-icon>
                 清理备份
               </el-button>
             </div>
@@ -145,7 +145,6 @@
 <script setup>
 import { ref, onMounted, reactive, nextTick } from 'vue'
 import dayjs from 'dayjs'
-import { Check, Refresh, Download, Upload, Delete } from '@element-plus/icons-vue'
 import { getSystemConfig, updateSystemConfig, createBackup, getBackupList, deleteBackup, restoreFromBackup } from '@/api/config'
 
 // 状态变量

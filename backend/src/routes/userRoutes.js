@@ -14,22 +14,22 @@ router.get('/home', async (req, res) => {
 
     // 获取热门笔记
     const [hotNotes] = await pool.execute(
-      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 1 AND n.is_hot = 1 ORDER BY n.views DESC LIMIT 10'
+      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_hot = 1 GROUP BY n.id ORDER BY n.views DESC LIMIT 10'
     );
 
     // 获取本周精选
     const [weeklyNotes] = await pool.execute(
-      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 1 AND n.is_weekly_pick = 1 ORDER BY n.updated_at DESC LIMIT 15'
+      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_weekly_pick = 1 GROUP BY n.id ORDER BY n.updated_at DESC LIMIT 15'
     );
 
     // 获取月度推荐
     const [monthlyNotes] = await pool.execute(
-      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 1 AND n.is_monthly_recommend = 1 ORDER BY n.updated_at DESC LIMIT 15'
+      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_monthly_recommend = 1 GROUP BY n.id ORDER BY n.updated_at DESC LIMIT 15'
     );
 
     // 获取高优先级分类（前8个）
     const [topCategories] = await pool.execute(
-      'SELECT c.*, COUNT(n.id) as note_count FROM categories c LEFT JOIN notes n ON c.id = n.category_id AND n.status = 1 WHERE c.status = 1 GROUP BY c.id ORDER BY c.priority ASC LIMIT 8'
+      'SELECT c.*, COUNT(nc.note_id) as note_count FROM categories c LEFT JOIN note_categories nc ON c.id = nc.category_id LEFT JOIN notes n ON nc.note_id = n.id AND n.status = 1 WHERE c.status = 1 GROUP BY c.id ORDER BY c.priority ASC LIMIT 8'
     );
 
     return res.json(formatSuccess({
@@ -51,7 +51,7 @@ router.get('/categories', async (req, res) => {
   try {
     // 获取所有启用的分类
     const [categories] = await pool.execute(
-      'SELECT c.*, COUNT(n.id) as note_count FROM categories c LEFT JOIN notes n ON c.id = n.category_id AND n.status = 1 WHERE c.status = 1 GROUP BY c.id ORDER BY c.sort_order ASC'
+      'SELECT c.*, COUNT(nc.note_id) as note_count FROM categories c LEFT JOIN note_categories nc ON c.id = nc.category_id LEFT JOIN notes n ON nc.note_id = n.id AND n.status = 1 WHERE c.status = 1 GROUP BY c.id ORDER BY c.priority ASC, c.id ASC'
     );
 
     // 构建树形结构
@@ -102,13 +102,13 @@ router.get('/categories/:id/notes', async (req, res) => {
 
     // 获取分类下的笔记
     const [notes] = await pool.execute(
-      `SELECT n.*, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 1 AND n.category_id = ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      `SELECT n.*, c.name as category_name FROM notes n JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND nc.category_id = ? GROUP BY n.id ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
       [id, parseInt(pageSize), parseInt(offset)]
     );
 
     // 获取总条数
     const [countResult] = await pool.execute(
-      'SELECT COUNT(*) as total FROM notes WHERE status = 1 AND category_id = ?',
+      'SELECT COUNT(DISTINCT n.id) as total FROM notes n JOIN note_categories nc ON n.id = nc.note_id WHERE n.status = 1 AND nc.category_id = ?',
       [id]
     );
     const total = countResult[0].total;
@@ -135,7 +135,7 @@ router.get('/notes/:id', async (req, res) => {
 
     // 获取笔记详情
     const [notes] = await pool.execute(
-      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id = ?',
+      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.id = ? GROUP BY n.id',
       [id]
     );
 
@@ -159,16 +159,16 @@ router.get('/notes/:id', async (req, res) => {
     await pool.execute('UPDATE notes SET views = views + 1 WHERE id = ?', [id]);
     note.views += 1;
 
-    // 获取上一篇和下一篇
+    // 获取上一篇和下一篇 - 注意：由于多对多关系，这里简化处理，仅考虑状态为1的笔记
     const [prevNext] = await pool.execute(
-      'SELECT id, title FROM notes WHERE status = 1 AND category_id = ? AND id < ? ORDER BY id DESC LIMIT 1',
-      [note.category_id, id]
+      'SELECT id, title FROM notes WHERE status = 1 AND id < ? ORDER BY id DESC LIMIT 1',
+      [id]
     );
     note.prevNote = prevNext.length > 0 ? prevNext[0] : null;
 
     const [nextPrev] = await pool.execute(
-      'SELECT id, title FROM notes WHERE status = 1 AND category_id = ? AND id > ? ORDER BY id ASC LIMIT 1',
-      [note.category_id, id]
+      'SELECT id, title FROM notes WHERE status = 1 AND id > ? ORDER BY id ASC LIMIT 1',
+      [id]
     );
     note.nextNote = nextPrev.length > 0 ? nextPrev[0] : null;
 
@@ -224,7 +224,7 @@ router.get('/search', async (req, res) => {
     }
 
     // 构建搜索查询
-    let query = 'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 1';
+    let query = 'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1';
     const whereClause = [];
     const params = [];
 
@@ -236,7 +236,7 @@ router.get('/search', async (req, res) => {
     if (categoryIds) {
       const ids = categoryIds.split(',').map(id => parseInt(id)).filter(id => !isNaN(id));
       if (ids.length > 0) {
-        whereClause.push('n.category_id IN (?)');
+        whereClause.push('nc.category_id IN (?)');
         params.push(ids);
       }
     }
@@ -301,7 +301,7 @@ router.get('/search', async (req, res) => {
     });
 
     // 获取总条数
-    let countQuery = 'SELECT COUNT(*) as total FROM notes n WHERE n.status = 1';
+    let countQuery = 'SELECT COUNT(DISTINCT n.id) as total FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1';
     const countParams = params.slice(0, -2); // 移除LIMIT和OFFSET参数
 
     if (whereClause.length > 0) {
@@ -315,7 +315,7 @@ router.get('/search', async (req, res) => {
     let recommendedNotes = [];
     if (total === 0) {
       const [hotNotes] = await pool.execute(
-        'SELECT n.id, n.title, n.cover_image, n.views, n.created_at, c.name as category_name FROM notes n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 1 ORDER BY n.views DESC LIMIT 5'
+        'SELECT n.id, n.title, n.cover_image, n.views, n.created_at, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 GROUP BY n.id ORDER BY n.views DESC LIMIT 5'
       );
       recommendedNotes = hotNotes;
     }

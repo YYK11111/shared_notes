@@ -26,7 +26,7 @@
         <el-input
           v-model="searchKeyword"
           placeholder="搜索反馈内容或联系方式"
-          prefix-icon="Search"
+          :prefix-icon="Search"
           class="search-input"
           @keyup.enter="handleSearch"
         />

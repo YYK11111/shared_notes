@@ -12,45 +12,55 @@
 - 文件上传和管理
 - 笔记分享和权限控制
 - 响应式设计，支持多设备访问
+- 管理员后台管理功能
 
 ## 项目结构
 
-本项目采用前后端分离的架构，调整后的目录结构如下：
+本项目采用前后端分离的架构，目录结构如下：
 
 ```
-├── backend/         # 后端API服务
-│   ├── database/    # 数据库相关文件
-│   ├── logs/        # 日志文件
-│   ├── src/         # 后端源代码
-│   │   ├── database/  # 数据库连接和操作
-│   │   ├── middleware/ # 中间件
-│   │   ├── routes/     # API路由
-│   │   ├── utils/      # 工具函数
-│   │   └── server.js   # 服务器入口文件
-│   ├── test/        # 测试文件目录
-│   ├── uploads/     # 上传文件存储
-│   ├── .env         # 环境变量配置
-│   ├── .env.example # 环境变量配置示例
-│   ├── .gitignore   # Git忽略配置
+├── .gitignore              # Git忽略配置
+├── README.md               # 项目说明文档
+├── api-docs/               # API文档目录
+│   ├── 分类管理API文档.md
+│   ├── 反馈管理API文档.md
+│   ├── 搜索管理API文档.md
+│   ├── 用户管理API文档.md
+│   ├── 笔记管理API文档.md
+│   ├── 管理员管理API文档.md
+│   ├── 系统配置API文档.md
+│   ├── 认证与授权API文档.md
+│   └── 路由权限管理API文档.md
+├── backend/                # 后端API服务
+│   ├── .env.example        # 环境变量配置示例
+│   ├── .gitignore          # Git忽略配置
 │   ├── API_DOCUMENTATION.md # API文档
-│   └── package.json # 后端依赖配置
-├── frontend/        # 前端应用
-│   ├── src/         # 前端源代码
-│   │   ├── App.vue    # 应用入口组件
-│   │   ├── api/       # API请求封装
-│   │   ├── assets/    # 静态资源
-│   │   ├── components/# 可复用组件
-│   │   ├── router/    # 路由配置
-│   │   ├── utils/     # 工具函数
-│   │   └── views/     # 页面组件
-│   ├── index.html   # HTML入口文件
-│   ├── package.json # 前端依赖配置
-│   └── vite.config.js # Vite配置文件
-├── .env             # 项目根目录环境变量配置
-├── .gitignore       # 项目根目录Git忽略配置
-├── README.md        # 项目说明文档
-├── package.json     # 项目根目录配置，包含启动脚本
-└── test_startup.js  # 项目启动测试脚本
+│   ├── NEW_API_DOCUMENTATION.md # 新版API文档
+│   ├── package.json        # 后端依赖配置
+│   ├── src/                # 后端源代码
+│   │   ├── database/       # 数据库连接和操作
+│   │   ├── middleware/     # 中间件
+│   │   ├── routes/         # API路由
+│   │   ├── utils/          # 工具函数
+│   │   └── server.js       # 服务器入口文件
+│   ├── test/               # 测试文件目录
+│   └── uploads/            # 上传文件存储
+├── frontend/               # 前端应用
+│   ├── .gitignore          # Git忽略配置
+│   ├── README.md           # 前端说明文档
+│   ├── index.html          # HTML入口文件
+│   ├── package.json        # 前端依赖配置
+│   ├── src/                # 前端源代码
+│   │   ├── App.vue         # 应用入口组件
+│   │   ├── api/            # API请求封装
+│   │   ├── components/     # 可复用组件
+│   │   ├── main.js         # 入口文件
+│   │   ├── router/         # 路由配置
+│   │   ├── store/          # 状态管理
+│   │   ├── utils/          # 工具函数
+│   │   └── views/          # 页面组件
+│   └── vite.config.js      # Vite配置文件
+└── package.json            # 项目根目录配置，包含启动脚本
 ```
 
 ## 快速开始
@@ -137,20 +147,14 @@ npm run backup
 npm run api-docs
 ```
 
-API文档已生成在`backend/API_DOCUMENTATION.md`文件中。
+API文档已生成在`backend/API_DOCUMENTATION.md`和`api-docs/`目录中。
 
 ## 测试
 
 项目包含多种测试脚本：
 - 后端测试文件位于`backend/test/`目录
 - 前端测试文件位于`frontend/`目录
-- 项目启动测试脚本：`test_startup.js`，用于检查项目结构和配置是否正确
-
-运行测试启动检查：
-
-```bash
-node test_startup.js
-```
+- 项目启动测试脚本用于检查项目结构和配置是否正确
 
 ## 注意事项
 

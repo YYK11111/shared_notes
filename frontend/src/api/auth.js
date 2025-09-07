@@ -1,3 +1,4 @@
+
 import request from '@/utils/request'
 
 // 登录
@@ -29,7 +30,7 @@ export const refreshToken = (data) => {
 // 获取可访问路由
 export const getAccessibleRoutes = () => {
   return request({
-    url: '/auth/routes',
+    url: '/route-permissions/accessible-routes',
     method: 'get'
   })
 }
@@ -39,5 +40,14 @@ export const getUserInfo = () => {
   return request({
     url: '/auth/info',
     method: 'get'
+  })
+}
+
+// 获取验证码
+export const getCaptcha = () => {
+  return request({
+    url: '/auth/captcha',
+    method: 'get',
+    responseType: 'blob'
   })
 }

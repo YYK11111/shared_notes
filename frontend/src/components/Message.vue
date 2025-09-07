@@ -22,9 +22,9 @@
           v-if="message.showClose" 
           class="message-close" 
           @click.stop="closeMessage(message.id || index)"
-        >
-          <Close />
-        </el-icon>
+          :icon="'Close'"
+        />
+        
       </div>
     </div>
   </teleport>
@@ -33,14 +33,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { 
-  Success, 
-  Warning, 
-  Error, 
-  Info, 
-  Close 
-} from '@element-plus/icons-vue'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 // 消息队列
 const messages = ref([])
@@ -68,12 +60,12 @@ const timerMap = new Map()
 // 获取默认图标
 const getDefaultIcon = (type) => {
   const iconMap = {
-    success: Success,
-    warning: Warning,
-    error: Error,
-    info: Info
+    success: 'Success',
+    warning: 'Warning',
+    error: 'CircleClose',
+    info: 'InfoFilled'
   }
-  return iconMap[type] || Info
+  return iconMap[type] || 'InfoFilled'
 }
 
 // 创建消息

@@ -18,6 +18,9 @@ export const getHotSearchWords = (params) => {
   })
 }
 
+// 兼容 SearchResult.vue 中导入的函数名
+export const getHotSearchKeywords = getHotSearchWords
+
 // 获取搜索历史
 export const getSearchHistory = () => {
   return request({
@@ -42,6 +45,9 @@ export const addSearchClickRecord = (data) => {
     data
   })
 }
+
+// 兼容 SearchResult.vue 中导入的函数名
+export const addSearchHistory = addSearchClickRecord
 
 // 搜索建议
 export const getSearchSuggestions = (params) => {

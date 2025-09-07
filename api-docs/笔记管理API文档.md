@@ -26,7 +26,7 @@ endDate: string // 结束日期筛选
 ```json
 {
   "code": 200,
-  "message": "获取笔记列表成功",
+  "msg": "获取笔记列表成功",
   "data": {
     "list": [
       {
@@ -68,7 +68,7 @@ endDate: string // 结束日期筛选
 ```json
 {
   "code": 200,
-  "message": "获取笔记详情成功",
+  "msg": "获取笔记详情成功",
   "data": {
     "id": "number",
     "title": "string",
@@ -106,17 +106,20 @@ endDate: string // 结束日期筛选
 title: string, // 笔记标题
 content: string, // 笔记内容
 status: number, // 状态（1: 启用, 0: 禁用）
-categoryIds: string, // 分类ID列表，逗号分隔
-isTop: number, // 是否置顶（1: 是, 0: 否）
-isHomeRecommend: number, // 是否首页推荐（1: 是, 0: 否）
-coverImage: file // 封面图片（可选）
+category_ids: string, // 分类ID列表，逗号分隔
+is_top: number, // 是否置顶（1: 是, 0: 否）
+top_expire_time: string, // 置顶过期时间（可选，格式：YYYY-MM-DD HH:mm:ss）
+is_home_recommend: number, // 是否首页推荐（1: 是, 0: 否）
+is_week_selection: number, // 是否本周精选（1: 是, 0: 否）
+is_month_recommend: number, // 是否本月推荐（1: 是, 0: 否）
+cover_image: file // 封面图片（可选）
 ```
 
 **返回**: 
 ```json
 {
   "code": 200,
-  "message": "创建笔记成功",
+  "msg": "创建笔记成功",
   "data": {
     "id": "number",
     "title": "string"
@@ -141,17 +144,21 @@ coverImage: file // 封面图片（可选）
 title: string, // 笔记标题
 content: string, // 笔记内容
 status: number, // 状态（1: 启用, 0: 禁用）
-categoryIds: string, // 分类ID列表，逗号分隔
-isTop: number, // 是否置顶（1: 是, 0: 否）
-coverImage: file, // 封面图片（可选）
-removeCover: number // 是否移除封面（1: 是）
+category_ids: string, // 分类ID列表，逗号分隔
+is_top: number, // 是否置顶（1: 是, 0: 否）
+top_expire_time: string, // 置顶过期时间（可选，格式：YYYY-MM-DD HH:mm:ss）
+is_home_recommend: number, // 是否首页推荐（1: 是, 0: 否）
+is_week_selection: number, // 是否本周精选（1: 是, 0: 否）
+is_month_recommend: number, // 是否本月推荐（1: 是, 0: 否）
+cover_image: file, // 封面图片（可选）
+delete_cover: number // 是否删除封面（1: 是）
 ```
 
 **返回**: 
 ```json
 {
   "code": 200,
-  "message": "更新笔记成功",
+  "msg": "更新笔记成功",
   "data": null
 }
 ```
@@ -175,7 +182,7 @@ removeCover: number // 是否移除封面（1: 是）
 ```json
 {
   "code": 200,
-  "message": "删除笔记成功",
+  "msg": "删除笔记成功",
   "data": null
 }
 ```
@@ -203,7 +210,7 @@ removeCover: number // 是否移除封面（1: 是）
 ```json
 {
   "code": 200,
-  "message": "批量删除笔记成功",
+  "msg": "批量删除笔记成功",
   "data": null
 }
 ```
@@ -232,7 +239,7 @@ removeCover: number // 是否移除封面（1: 是）
 ```json
 {
   "code": 200,
-  "message": "批量修改状态成功",
+  "msg": "批量修改状态成功",
   "data": null
 }
 ```
@@ -249,17 +256,18 @@ removeCover: number // 是否移除封面（1: 是）
 
 **功能**: 获取笔记统计概览数据
 
-**参数**: 无
+**参数**: 
+- startDate: 可选，开始日期（格式：YYYY-MM-DD）
+- endDate: 可选，结束日期（格式：YYYY-MM-DD）
 
 **返回**: 
 ```json
 {
   "code": 200,
-  "message": "获取统计数据成功",
+  "msg": "获取统计数据成功",
   "data": {
     "total": "number", // 总笔记数
-    "enabled": "number", // 启用的笔记数
-    "disabled": "number", // 禁用的笔记数
+    "active": "number", // 启用的笔记数
     "top": "number", // 置顶的笔记数
     "recommended": "number" // 推荐的笔记数
   }
@@ -281,16 +289,13 @@ removeCover: number // 是否移除封面（1: 是）
 ```json
 {
   "code": 200,
-  "message": "切换置顶状态成功",
-  "data": {
-    "isTop": "number" // 新的置顶状态（1: 是, 0: 否）
-  }
+  "msg": "置顶成功"或"取消置顶成功",
+  "data": null
 }
-```
 
 **错误码**: 
 - 404: 笔记不存在
-- 500: 切换置顶状态失败
+- 500: 切换置顶状态失败，请稍后重试
 
 ---
 
@@ -309,7 +314,7 @@ image: file // 图片文件
 ```json
 {
   "code": 200,
-  "message": "上传成功",
+  "msg": "上传成功",
   "data": {
     "url": "string" // 图片URL
   }
@@ -328,3 +333,46 @@ image: file // 图片文件
 - 笔记内容支持HTML富文本格式
 - 封面图片支持JPG、PNG、GIF格式，大小不超过5MB
 - 笔记标题长度限制在1-200个字符
+
+### 11. 批量笔记统计接口
+
+**路径**: `POST /api/notes/stats/filter`
+
+**功能**: 根据统计指标筛选笔记
+
+**参数**: 
+```json
+{
+  "condition": "object", // 筛选条件
+  "timeRange": "string", // 时间范围，如'7d'表示7天
+  "page": "number", // 页码，默认为1
+  "pageSize": "number" // 每页条数，默认为10
+}
+```
+
+**返回**: 
+```json
+{
+  "code": 200,
+  "msg": "获取数据成功",
+  "data": {
+    "list": [
+      { 
+        "id": "number",
+        "title": "string",
+        "view_count": "number",
+        "created_at": "string",
+        "updated_at": "string"
+        // 其他相关字段
+      }
+    ],
+    "total": "number",
+    "page": "number",
+    "pageSize": "number",
+    "totalPages": "number"
+  }
+}
+
+**错误码**: 
+- 400: 请提供有效的筛选条件
+- 500: 获取数据失败

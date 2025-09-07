@@ -7,7 +7,7 @@
 
 ### 1. 获取所有系统配置
 
-**路径**: `GET /api/configs`
+**路径**: `GET /api/config`
 
 **功能**: 获取所有系统配置项
 
@@ -17,17 +17,12 @@
 ```json
 {
   "code": 200,
-  "message": "获取系统配置成功",
-  "data": [
-    {
-      "id": "number",
-      "config_key": "string",
-      "config_value": "string",
-      "description": "string",
-      "created_at": "string",
-      "updated_at": "string"
-    }
-  ]
+  "msg": "获取系统配置成功",
+  "data": {
+    "config_key1": "value1",
+    "config_key2": "value2",
+    ...
+  }
 }
 ```
 
@@ -35,7 +30,7 @@
 
 ### 2. 获取单个系统配置
 
-**路径**: `GET /api/configs/:key`
+**路径**: `GET /api/config/:key`
 
 **功能**: 获取指定键的系统配置值
 
@@ -46,7 +41,7 @@
 ```json
 {
   "code": 200,
-  "message": "获取配置成功",
+  "msg": "获取配置成功",
   "data": {
     "config_key": "string",
     "config_value": "string",
@@ -62,7 +57,7 @@
 
 ### 3. 更新单个系统配置
 
-**路径**: `PUT /api/configs/:key`
+**路径**: `PUT /api/config/:key`
 
 **功能**: 更新指定键的系统配置值
 
@@ -78,7 +73,7 @@
 ```json
 {
   "code": 200,
-  "message": "更新配置成功",
+  "msg": "更新配置成功",
   "data": null
 }
 ```
@@ -91,7 +86,7 @@
 
 ### 4. 批量更新系统配置
 
-**路径**: `POST /api/configs/batch-update`
+**路径**: `PUT /api/config/batch/update`
 
 **功能**: 批量更新多个系统配置项
 
@@ -112,7 +107,7 @@
 ```json
 {
   "code": 200,
-  "message": "批量更新配置成功",
+  "msg": "批量更新配置成功",
   "data": null
 }
 ```
@@ -136,7 +131,7 @@
 ```json
 {
   "code": 200,
-  "message": "删除配置成功",
+  "msg": "删除配置成功",
   "data": null
 }
 ```
@@ -160,7 +155,7 @@
 ```json
 {
   "code": 200,
-  "message": "数据库备份成功",
+  "msg": "数据库备份成功",
   "data": {
     "filename": "string",
     "path": "string",
@@ -191,7 +186,7 @@
 ```json
 {
   "code": 200,
-  "message": "数据库恢复成功",
+  "msg": "数据库恢复成功",
   "data": null
 }
 ```
@@ -214,7 +209,7 @@
 ```json
 {
   "code": 200,
-  "message": "缓存清理成功",
+  "msg": "缓存清理成功",
   "data": null
 }
 ```
@@ -236,7 +231,7 @@
 ```json
 {
   "code": 200,
-  "message": "获取系统信息成功",
+  "msg": "获取系统信息成功",
   "data": {
     "nodeVersion": "string",
     "databaseVersion": "string",
@@ -255,116 +250,6 @@
   }
 }
 ```
-
----
-
-### 10. 获取搜索配置
-
-**路径**: `GET /api/configs/search`
-
-**功能**: 获取搜索相关配置
-
-**参数**: 无
-
-**返回**: 
-```json
-{
-  "code": 200,
-  "message": "获取搜索配置成功",
-  "data": {
-    "searchEnabled": "boolean",
-    "minKeywordLength": "number",
-    "maxResults": "number",
-    "cacheTtl": "number"
-  }
-}
-```
-
----
-
-### 11. 更新搜索配置
-
-**路径**: `PUT /api/configs/search`
-
-**功能**: 更新搜索相关配置
-
-**参数**: 
-```json
-{
-  "searchEnabled": "boolean",
-  "minKeywordLength": "number",
-  "maxResults": "number",
-  "cacheTtl": "number"
-}
-```
-
-**返回**: 
-```json
-{
-  "code": 200,
-  "message": "更新搜索配置成功",
-  "data": null
-}
-```
-
-**错误码**: 
-- 500: 更新搜索配置失败
-
----
-
-### 12. 添加敏感词
-
-**路径**: `POST /api/configs/sensitive-words/add`
-
-**功能**: 添加系统敏感词
-
-**参数**: 
-```json
-{
-  "words": ["string"] // 敏感词数组
-}
-```
-
-**返回**: 
-```json
-{
-  "code": 200,
-  "message": "添加敏感词成功",
-  "data": null
-}
-```
-
-**错误码**: 
-- 400: 敏感词不能为空
-- 500: 添加敏感词失败
-
----
-
-### 13. 删除敏感词
-
-**路径**: `POST /api/configs/sensitive-words/remove`
-
-**功能**: 删除系统敏感词
-
-**参数**: 
-```json
-{
-  "word": "string" // 要删除的敏感词
-}
-```
-
-**返回**: 
-```json
-{
-  "code": 200,
-  "message": "删除敏感词成功",
-  "data": null
-}
-```
-
-**错误码**: 
-- 400: 敏感词不能为空
-- 500: 删除敏感词失败
 
 ## 权限说明
 - 所有接口均需要超级管理员权限

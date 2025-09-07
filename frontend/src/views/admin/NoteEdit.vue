@@ -186,7 +186,7 @@ const noteForm = reactive({
 // 编译Markdown
 const compiledMarkdown = computed(() => {
   if (!noteForm.content) return ''
-  return marked(noteForm.content)
+  return marked.parse(noteForm.content)
 })
 
 // 获取分类列表

@@ -6,17 +6,17 @@
           <h2 class="page-title">分类管理</h2>
           <div class="header-actions">
             <el-button type="primary" @click="handleCreateCategory">
-              <el-icon><Plus /></el-icon>
-              新建分类
-            </el-button>
+            <el-icon><Plus /></el-icon>
+            新建分类
+          </el-button>
             <el-button @click="handleBatchDelete" :disabled="selectedCategories.length === 0">
-              <el-icon><Delete /></el-icon>
-              批量删除
-            </el-button>
+            <el-icon><Delete /></el-icon>
+            批量删除
+          </el-button>
             <el-button @click="handleSortCategories">
-              <el-icon><Sort /></el-icon>
-              分类排序
-            </el-button>
+            <el-icon><Sort /></el-icon>
+            分类排序
+          </el-button>
           </div>
         </div>
       </template>
@@ -26,7 +26,7 @@
         <el-input
           v-model="searchKeyword"
           placeholder="搜索分类名称"
-          prefix-icon="Search"
+          :prefix-icon="Search"
           class="search-input"
           @keyup.enter="handleSearch"
         />
@@ -110,7 +110,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Plus, Delete, Search, Sort } from '@element-plus/icons-vue'
+import { Plus, Delete, Sort } from '@element-plus/icons-vue'
+
 import { getCategoryList, deleteCategory, updateCategoryStatus, sortCategories } from '@/api/category'
 
 const router = useRouter()

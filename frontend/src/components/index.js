@@ -1,6 +1,4 @@
 // 全局组件注册
-import { App } from 'vue'
-
 // 导入所有全局组件
 import Breadcrumb from './Breadcrumb.vue'
 import Loading from './Loading.vue'

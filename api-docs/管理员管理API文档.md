@@ -24,7 +24,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "获取管理员列表成功",
+  "msg": "获取管理员列表成功",
   "data": {
     "list": [
       {
@@ -62,7 +62,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "获取管理员详情成功",
+  "msg": "获取管理员详情成功",
   "data": {
     "id": "number",
     "username": "string",
@@ -103,7 +103,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "创建管理员成功",
+  "msg": "创建管理员成功",
   "data": {"id": "number"}
 }
 ```
@@ -135,7 +135,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "更新管理员成功",
+  "msg": "更新管理员成功",
   "data": null
 }
 ```
@@ -160,7 +160,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "删除管理员成功",
+  "msg": "删除管理员成功",
   "data": null
 }
 ```
@@ -189,7 +189,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "批量删除管理员成功",
+  "msg": "批量删除管理员成功",
   "data": null
 }
 ```
@@ -213,7 +213,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "获取角色列表成功",
+  "msg": "获取角色列表成功",
   "data": [
     {
       "id": "number",
@@ -246,7 +246,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "创建角色成功",
+  "msg": "创建角色成功",
   "data": {"id": "number"}
 }
 ```
@@ -275,7 +275,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "更新角色成功",
+  "msg": "更新角色成功",
   "data": null
 }
 ```
@@ -300,7 +300,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "删除角色成功",
+  "msg": "删除角色成功",
   "data": null
 }
 ```
@@ -325,7 +325,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "获取角色权限成功",
+  "msg": "获取角色权限成功",
   "data": {
     "roleId": "number",
     "permissions": ["string"] // 权限编码列表
@@ -352,7 +352,7 @@ roleId: number // 角色ID筛选
 ```json
 {
   "code": 200,
-  "message": "分配权限成功",
+  "msg": "分配权限成功",
   "data": null
 }
 ```
@@ -383,7 +383,7 @@ ip: string // IP地址筛选
 ```json
 {
   "code": 200,
-  "message": "获取登录日志成功",
+  "msg": "获取登录日志成功",
   "data": {
     "list": [
       {
@@ -426,7 +426,7 @@ module: string // 操作模块
 ```json
 {
   "code": 200,
-  "message": "获取操作日志成功",
+  "msg": "获取操作日志成功",
   "data": {
     "list": [
       {
