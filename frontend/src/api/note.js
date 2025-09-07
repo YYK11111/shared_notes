@@ -84,3 +84,20 @@ export const getNoteStats = () => {
     method: 'get'
   })
 }
+
+// 审核通过笔记
+export const approveNote = (id) => {
+  return request({
+    url: `/notes/${id}/approve`,
+    method: 'put'
+  })
+}
+
+// 拒绝笔记审核
+export const rejectNote = (id, data) => {
+  return request({
+    url: `/notes/${id}/reject`,
+    method: 'put',
+    data
+  })
+}

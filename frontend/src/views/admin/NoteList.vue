@@ -101,7 +101,7 @@ import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { Plus, Delete } from '@element-plus/icons-vue'
 
-import { getNoteList, deleteNote, approveNote, rejectNote } from '@/api/category'
+import { getNoteList, deleteNote, approveNote, rejectNote } from '@/api/note'
 
 const router = useRouter()
 
