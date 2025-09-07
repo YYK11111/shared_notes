@@ -49,7 +49,19 @@ const adminRoutes = {
   name: 'AdminLayout',
   component: AdminLayout,
   meta: { requiresAuth: true },
-  children: [] // 动态添加
+  children: [
+    // 添加默认仪表盘路由，确保即使动态路由加载失败也能访问
+    {
+      path: 'dashboard',
+      name: 'Dashboard',
+      component: () => import('@/views/admin/Dashboard.vue'),
+      meta: {
+        title: '仪表盘',
+        icon: 'dashboard',
+        requiresAuth: true
+      }
+    }
+  ]
 }
 
 const router = createRouter({
@@ -67,9 +79,14 @@ router.beforeEach(async (to, from, next) => {
     return next('/login')
   }
   
-  // 已登录访问登录页，跳转到首页
+  // 已登录访问登录页，跳转到仪表盘
   if (to.path === '/login' && authStore.isLoggedIn) {
-    return next('/admin')
+    return next('/admin/dashboard')
+  }
+
+  // 重定向旧的dashboard路径到带admin前缀的路径
+  if (to.path === '/dashboard') {
+    return next('/admin/dashboard')
   }
   
   // 处理管理员路由
@@ -96,8 +113,11 @@ router.beforeEach(async (to, from, next) => {
             }
           };
           
+          // 确保子路由路径格式正确 - 移除前导斜杠，因为父路由已经有路径前缀
+          const routePath = route.path.startsWith('/') ? route.path.substring(1) : route.path;
+          
           adminRoutes.children.push({
-            path: route.path,
+            path: routePath,
             name: route.name,
             component: getComponent(route.component),
             meta: route.meta

@@ -25,10 +25,17 @@
       <div class="search-filter-container">
         <el-input v-model="searchKeyword" placeholder="搜索笔记标题或内容" :prefix-icon="Search" class="search-input"
           @keyup.enter="handleSearch" />
-        <el-select v-model="categoryFilter" placeholder="选择分类" class="filter-select">
-          <el-option label="全部" value="" />
-          <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
-        </el-select>
+        <el-cascader
+          v-model="categoryFilter"
+          :options="categories"
+          :props="{ label: 'name', value: 'id', children: 'children' }"
+          placeholder="选择分类"
+          class="filter-select"
+          @change="handleCategoryChange"
+          clearable
+        />
+        <!-- 隐藏的输入框，用于存储最终选择的分类ID -->
+        <input type="hidden" v-model="selectedCategoryId" />
         <el-select v-model="statusFilter" placeholder="选择状态" class="filter-select">
           <el-option label="全部" value="" />
           <el-option label="已发布" value="published" />
@@ -52,9 +59,9 @@
             <span class="note-title" @click="viewNoteDetail(row.id)">{{ row.title }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="category_id" label="分类" width="120">
+        <el-table-column prop="categories" label="分类" width="120">
           <template #default="{ row }">
-            <span>{{ getCategoryName(row.category_id) }}</span>
+            <span>{{ getCategoryName(row.categories) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="author" label="作者" width="120" />
@@ -100,8 +107,10 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { Plus, Delete } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { getNoteList, deleteNote, approveNote, rejectNote } from '@/api/note'
+import { getCategoryList } from '@/api/category'
 
 const router = useRouter()
 
@@ -117,6 +126,7 @@ const selectedNotes = ref([])
 // 搜索和筛选条件
 const searchKeyword = ref('')
 const categoryFilter = ref('')
+const selectedCategoryId = ref('') // 存储最终选择的分类ID
 const statusFilter = ref('')
 const dateRange = ref([])
 
@@ -129,14 +139,15 @@ const fetchNotes = async () => {
       page: currentPage.value,
       pageSize: pageSize.value,
       keyword: searchKeyword.value,
-      category_id: categoryFilter.value || undefined,
+      category_id: selectedCategoryId.value || undefined,
       status: statusFilter.value || undefined,
       start_date: dateRange.value[0] ? dayjs(dateRange.value[0]).format('YYYY-MM-DD') : undefined,
       end_date: dateRange.value[1] ? dayjs(dateRange.value[1]).format('YYYY-MM-DD') : undefined
     }
 
     const response = await getNoteList(params)
-    notesData.value = response.data?.items || []
+    // 根据API返回的实际数据结构修改
+    notesData.value = response.data?.list || []
     totalCount.value = response.data?.total || 0
   } catch (error) {
     ElMessage.error('获取笔记列表失败：' + (error.message || '未知错误'))
@@ -149,17 +160,11 @@ const fetchNotes = async () => {
 // 获取分类列表
 const fetchCategories = async () => {
   try {
-    // 实际项目中应该调用获取分类列表的API
-    // 这里使用模拟数据
-    categories.value = [
-      { id: 1, name: '前端开发' },
-      { id: 2, name: '后端开发' },
-      { id: 3, name: '数据库' },
-      { id: 4, name: 'DevOps' },
-      { id: 5, name: '人工智能' }
-    ]
+    const response = await getCategoryList()
+    // 修复：使用response.data.list而不是整个response.data
+    categories.value = response.data?.list || []
   } catch (error) {
-    ElMessage.error('获取分类列表失败')
+    ElMessage.error('获取分类列表失败：' + (error.message || '未知错误'))
     console.error('获取分类列表失败:', error)
   }
 }
@@ -174,6 +179,7 @@ const handleSearch = () => {
 const resetFilters = () => {
   searchKeyword.value = ''
   categoryFilter.value = ''
+  selectedCategoryId.value = ''
   statusFilter.value = ''
   dateRange.value = []
   currentPage.value = 1
@@ -182,6 +188,18 @@ const resetFilters = () => {
 
 // 处理日期筛选
 const handleDateFilter = () => {
+  currentPage.value = 1
+  fetchNotes()
+}
+
+// 处理分类级联选择变化
+const handleCategoryChange = (value) => {
+  // 级联选择器的值是一个数组，最后一个元素是最终选择的分类ID
+  if (value && value.length > 0) {
+    selectedCategoryId.value = value[value.length - 1]
+  } else {
+    selectedCategoryId.value = ''
+  }
   currentPage.value = 1
   fetchNotes()
 }
@@ -330,9 +348,31 @@ const formatDate = (dateString) => {
   return dayjs(dateString).format('YYYY-MM-DD HH:mm:ss')
 }
 
-// 获取分类名称
+// 获取分类名称（支持层级显示）
 const getCategoryName = (categoryId) => {
-  const category = categories.value.find(cat => cat.id === categoryId)
+  // 如果没有分类ID或分类列表为空，返回未分类
+  if (!categoryId || !categories.value.length) {
+    return '未分类'
+  }
+  
+  // 递归查找分类
+  const findCategoryRecursive = (cats, id) => {
+    for (const cat of cats) {
+      if (cat.id === id) {
+        return cat
+      }
+      // 如果有子分类，递归查找
+      if (cat.children && cat.children.length > 0) {
+        const found = findCategoryRecursive(cat.children, id)
+        if (found) {
+          return found
+        }
+      }
+    }
+    return null
+  }
+  
+  const category = findCategoryRecursive(categories.value, categoryId)
   return category ? category.name : '未分类'
 }
 
