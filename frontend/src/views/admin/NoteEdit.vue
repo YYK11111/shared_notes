@@ -9,7 +9,7 @@
               <el-icon><ArrowLeft /></el-icon>
               取消
             </el-button>
-            <el-button type="primary" @click="handleSaveNote">
+            <el-button type="primary" @click="handleSaveNote" :loading="loading">
               <el-icon><Check /></el-icon>
               {{ isEditMode ? '更新笔记' : '创建笔记' }}
             </el-button>
@@ -17,9 +17,16 @@
         </div>
       </template>
       
+      <!-- 自动保存提示 -->
+      <div v-if="autoSaveStatus" class="auto-save-indicator">
+        <el-icon v-if="autoSaveStatus === 'saving'" class="icon-loading"><Loading /></el-icon>
+        <el-icon v-if="autoSaveStatus === 'success'" class="icon-success"><Check /></el-icon>
+        <span>{{ autoSaveStatus === 'saving' ? '正在自动保存...' : '已自动保存草稿' }}</span>
+      </div>
+      
       <!-- 笔记表单 -->
       <div class="note-form-container">
-        <el-form :model="noteForm" ref="noteFormRef" label-width="100px">
+        <el-form :model="noteForm" ref="noteFormRef" label-width="100px" :disabled="loading">
           <el-form-item label="标题" prop="title" :rules="[{ required: true, message: '请输入笔记标题', trigger: 'blur' }]">
             <el-input v-model="noteForm.title" placeholder="请输入笔记标题" />
           </el-form-item>
@@ -36,7 +43,22 @@
           </el-form-item>
           
           <el-form-item label="标签" prop="tags">
-            <el-input v-model="noteForm.tags" placeholder="请输入标签，用逗号分隔" />
+            <el-input 
+              v-model="noteForm.tags" 
+              placeholder="请输入标签，按回车添加" 
+              @keydown.enter.prevent="addTag"
+            />
+            <!-- 已添加的标签显示 -->
+            <div class="tags-display" v-if="tagList.length">
+              <el-tag 
+                v-for="(tag, index) in tagList" 
+                :key="index" 
+                closable 
+                @close="removeTag(index)"
+              >
+                {{ tag }}
+              </el-tag>
+            </div>
             <div class="form-hint">最多添加5个标签，每个标签不超过10个字符</div>
           </el-form-item>
           
@@ -46,7 +68,7 @@
               class="upload-demo"
               action=""
               :before-upload="handleBeforeUpload"
-              :on-success="handleImageUploadSuccess"
+              :http-request="handleImageUpload"
               :auto-upload="false"
               :show-file-list="true"
               list-type="picture-card"
@@ -55,9 +77,14 @@
             >
               <el-icon><Plus /></el-icon>
               <template #file="{ file }">
-                <img :src="file.url" alt="封面图片" class="preview-image" />
-                <div class="el-upload__file-action">
-                  <el-icon @click="handleRemoveImage"><Delete /></el-icon>
+                <div class="upload-file-container">
+                  <img :src="file.url" alt="封面图片" class="preview-image" />
+                  <div v-if="file.status === 'uploading'" class="upload-progress">
+                    <el-progress :percentage="file.percentage" stroke-width="2" />
+                  </div>
+                  <div class="el-upload__file-action">
+                    <el-icon @click="handleRemoveImage"><Delete /></el-icon>
+                  </div>
                 </div>
               </template>
             </el-upload>
@@ -77,47 +104,34 @@
           
           <el-form-item label="内容" prop="content" :rules="[{ required: true, message: '请输入笔记内容', trigger: 'blur' }]">
             <div class="editor-container">
-              <div class="editor-tabs">
-                <el-button
-                  type="text"
-                  :class="{ active: editorMode === 'markdown' }"
-                  @click="editorMode = 'markdown'"
-                >
-                  Markdown
-                </el-button>
-                <el-button
-                  type="text"
-                  :class="{ active: editorMode === 'preview' }"
-                  @click="editorMode = 'preview'"
-                >
-                  预览
-                </el-button>
-              </div>
-              
-              <!-- Markdown编辑器 -->
-              <div v-if="editorMode === 'markdown'" class="markdown-editor-wrapper">
-                <textarea
-                  v-model="noteForm.content"
-                  placeholder="请输入笔记内容，支持Markdown格式"
-                  class="markdown-editor"
-                  rows="15"
-                ></textarea>
-              </div>
-              
-              <!-- 预览区域 -->
-              <div v-else-if="editorMode === 'preview'" class="preview-wrapper">
-                <div class="markdown-preview" v-html="compiledMarkdown"></div>
-              </div>
+              <mavon-editor
+                v-model="noteForm.content"
+                :ishljs="true"
+                :toolbars="toolbars"
+                @imgAdd="handleImgAdd"
+                @change="handleContentChange"
+                style="min-height: 500px"
+              />
             </div>
           </el-form-item>
           
           <el-form-item label="SEO描述">
-            <el-input v-model="noteForm.seo_description" type="textarea" placeholder="请输入SEO描述" :rows="2" />
+            <el-input 
+              v-model="noteForm.seo_description" 
+              type="textarea" 
+              placeholder="请输入SEO描述" 
+              :rows="2"
+              :maxlength="160"
+              show-word-limit
+            />
             <div class="form-hint">不超过160个字符，用于搜索引擎展示</div>
           </el-form-item>
           
           <el-form-item label="SEO关键词">
-            <el-input v-model="noteForm.seo_keywords" placeholder="请输入SEO关键词，用逗号分隔" />
+            <el-input 
+              v-model="noteForm.seo_keywords" 
+              placeholder="请输入SEO关键词，用逗号分隔" 
+            />
             <div class="form-hint">最多添加5个关键词</div>
           </el-form-item>
           
@@ -148,13 +162,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import dayjs from 'dayjs'
-import { Check, ArrowLeft, Plus, Delete } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { createNote, updateNote, getNoteById, getCategoryList, uploadNoteImage } from '@/api/note'
+import { Check, ArrowLeft, Plus, Delete, Loading } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, ElProgress } from 'element-plus'
+import { createNote, updateNote, getNoteDetail, uploadNoteImage } from '@/api/note'
+import { getCategoryList } from '@/api/category'
 import { marked } from 'marked'
+import mavonEditor from 'mavon-editor'
+import 'mavon-editor/dist/css/index.css'
 
 const router = useRouter()
 const route = useRoute()
@@ -163,10 +180,13 @@ const isEditMode = !!noteId
 
 // 状态变量
 const loading = ref(false)
-const editorMode = ref('markdown')
+const imageUploadLoading = ref(false)
+const autoSaveStatus = ref('') // 'saving', 'success', ''
 const categories = ref([])
 const imageFileList = ref([])
 const noteFormRef = ref()
+const tagList = ref([])
+const autoSaveTimer = ref(null)
 
 // 笔记表单数据
 const noteForm = reactive({
@@ -189,6 +209,134 @@ const compiledMarkdown = computed(() => {
   return marked.parse(noteForm.content)
 })
 
+// 修正后的mavon-editor工具栏配置
+const toolbars = {
+  bold: true,          // 粗体
+  italic: true,        // 斜体
+  header: true,        // 标题
+  underline: true,     // 下划线
+  strikethrough: true, // 删除线
+  mark: true,          // 标记
+  code: true,          // 代码
+  subscript: true,     // 下标
+  superscript: true,   // 上标（修正了此处的语法错误）
+  quote: true,         // 引用
+  ol: true,            // 有序列表
+  ul: true,            // 无序列表
+  link: true,          // 链接
+  imagelink: true,     // 图片链接
+  table: true,         // 表格
+  fullscreen: true,    // 全屏
+  readmodel: true,     // 阅读模式
+  htmlcode: true,      // HTML代码
+  help: true,          // 帮助
+  undo: true,          // 撤销
+  redo: true,          // 重做
+  trash: true,         // 清空
+  save: true,          // 保存
+  navigation: true,    // 导航
+  alignleft: true,     // 左对齐
+  aligncenter: true,   // 居中对齐
+  alignright: true,    // 右对齐
+  subfield: true,      // 单双栏模式
+  preview: true        // 预览
+}
+
+// 处理内容变化，设置自动保存
+const handleContentChange = () => {
+  // 清除之前的定时器
+  if (autoSaveTimer.value) {
+    clearTimeout(autoSaveTimer.value)
+  }
+  
+  // 5秒后自动保存草稿
+  autoSaveTimer.value = setTimeout(() => {
+    if (noteForm.title || noteForm.content) {
+      autoSaveDraft()
+    }
+  }, 5000)
+}
+
+// 自动保存草稿
+const autoSaveDraft = async () => {
+  // 如果已经是草稿状态，不重复保存
+  if (noteForm.status === 0 && autoSaveStatus.value === 'success') return
+  
+  autoSaveStatus.value = 'saving'
+  
+  try {
+    const originalStatus = noteForm.status
+    // 临时设置为草稿状态保存
+    noteForm.status = 0
+    
+    const noteData = {
+      title: noteForm.title,
+      category_id: noteForm.category_id,
+      tags: tagList.value,
+      cover_image: noteForm.cover_image,
+      status: 0, // 确保保存为草稿
+      is_recommended: noteForm.is_recommended === '1',
+      content: noteForm.content,
+      seo_description: noteForm.seo_description,
+      seo_keywords: noteForm.seo_keywords
+    }
+    
+    let response
+    if (isEditMode) {
+      response = await updateNote(noteId, noteData)
+    } else {
+      // 对于新建笔记，保存后获取ID以便后续更新
+      response = await createNote(noteData)
+      if (response.code === 200 && response.data?.id && !noteId) {
+        // 首次自动保存后更新路由，确保后续保存正确
+        router.replace(`/admin/notes/edit/${response.data.id}`)
+      }
+    }
+    
+    if (response.code === 200) {
+      autoSaveStatus.value = 'success'
+      // 3秒后隐藏成功提示
+      setTimeout(() => {
+        autoSaveStatus.value = ''
+      }, 3000)
+    } else {
+      throw new Error(response.message || '自动保存失败')
+    }
+    
+    // 恢复原始状态
+    noteForm.status = originalStatus
+  } catch (error) {
+    console.error('自动保存失败:', error)
+    autoSaveStatus.value = ''
+  }
+}
+
+// 处理图片添加到编辑器
+const handleImgAdd = async (pos, $file) => {
+  try {
+    // 创建FormData对象
+    const formData = new FormData()
+    formData.append('image', $file)
+    
+    // 调用上传图片接口
+    const response = await uploadNoteImage(formData)
+    
+    if (response.code === 200 && response.data?.url) {
+      // 将图片路径插入到编辑器中
+      const mavonEditorEl = document.querySelector('.mavon-editor')
+      if (mavonEditorEl && mavonEditorEl.$img2Url) {
+        mavonEditorEl.$img2Url(pos, response.data.url)
+      }
+      ElMessage.success('图片上传成功')
+    } else {
+      ElMessage.error('图片上传失败：' + (response.message || '未知错误'))
+    }
+  } catch (error) {
+    ElMessage.error('图片上传失败：' + (error.message || '未知错误'))
+    console.error('图片上传失败:', error)
+  }
+}
+
 // 获取分类列表
 const fetchCategories = async () => {
   try {
@@ -206,14 +354,13 @@ const fetchNoteDetail = async () => {
   
   loading.value = true
   try {
-    const response = await getNoteById(noteId)
+    const response = await getNoteDetail(noteId)
     const note = response.data
     
     // 填充表单数据
     Object.assign(noteForm, {
       title: note.title,
       category_id: note.category_id,
-      tags: note.tags?.join(', ') || '',
       cover_image: note.cover_image || '',
       status: note.status,
       is_recommended: note.is_recommended ? '1' : '0',
@@ -224,9 +371,14 @@ const fetchNoteDetail = async () => {
       updated_at: dayjs(note.updated_at).toDate()
     })
     
+    // 处理标签
+    if (note.tags && Array.isArray(note.tags)) {
+      tagList.value = [...note.tags]
+    }
+    
     // 处理封面图片
     if (note.cover_image) {
-      imageFileList.value = [{ url: note.cover_image }]
+      imageFileList.value = [{ url: note.cover_image, status: 'success' }]
     }
   } catch (error) {
     ElMessage.error('获取笔记详情失败：' + (error.message || '未知错误'))
@@ -238,18 +390,52 @@ const fetchNoteDetail = async () => {
   }
 }
 
+// 添加标签
+const addTag = () => {
+  if (!noteForm.tags.trim()) return
+  
+  const newTag = noteForm.tags.trim()
+  
+  // 验证标签
+  if (tagList.value.length >= 5) {
+    ElMessage.warning('最多添加5个标签')
+    return
+  }
+  
+  if (newTag.length > 10) {
+    ElMessage.warning('每个标签不超过10个字符')
+    return
+  }
+  
+  if (tagList.value.includes(newTag)) {
+    ElMessage.warning('该标签已存在')
+    noteForm.tags = ''
+    return
+  }
+  
+  // 添加标签
+  tagList.value.push(newTag)
+  noteForm.tags = ''
+  
+  // 触发自动保存
+  handleContentChange()
+}
+
+// 移除标签
+const removeTag = (index) => {
+  tagList.value.splice(index, 1)
+  // 触发自动保存
+  handleContentChange()
+}
+
 // 验证标签格式
 const validateTags = () => {
-  if (!noteForm.tags) return true
-  
-  const tags = noteForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
-  
-  if (tags.length > 5) {
+  if (tagList.value.length > 5) {
     ElMessage.warning('最多添加5个标签')
     return false
   }
   
-  for (const tag of tags) {
+  for (const tag of tagList.value) {
     if (tag.length > 10) {
       ElMessage.warning('每个标签不超过10个字符')
       return false
@@ -282,7 +468,7 @@ const handleBeforeUpload = (file) => {
     img.src = e.target.result
     img.onload = () => {
       const aspectRatio = img.width / img.height
-      // 检查宽高比是否在4:3的合理范围内
+      // 检查宽高比是否在4:3的合理范围内 (1.333)
       if (aspectRatio < 1.2 || aspectRatio > 1.5) {
         ElMessage.warning('建议上传宽高比为4:3的图片')
       }
@@ -292,13 +478,34 @@ const handleBeforeUpload = (file) => {
   return true
 }
 
-// 处理图片上传成功
-const handleImageUploadSuccess = (response) => {
-  if (response.code === 200 && response.data?.url) {
-    noteForm.cover_image = response.data.url
-    ElMessage.success('图片上传成功')
-  } else {
-    ElMessage.error('图片上传失败：' + (response.message || '未知错误'))
+// 处理图片上传
+const handleImageUpload = async (options) => {
+  const { file, onSuccess, onError, onProgress } = options
+  
+  try {
+    // 创建FormData对象
+    const formData = new FormData()
+    formData.append('image', file)
+    
+    // 调用上传图片接口，监听进度
+    const response = await uploadNoteImage(formData, {
+      onUploadProgress: (progressEvent) => {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+        onProgress({ percent })
+      }
+    })
+    
+    if (response.code === 200 && response.data?.url) {
+      noteForm.cover_image = response.data.url
+      onSuccess(response)
+      ElMessage.success('图片上传成功')
+    } else {
+      throw new Error(response.message || '图片上传失败')
+    }
+  } catch (error) {
+    onError(error)
+    ElMessage.error('图片上传失败：' + (error.message || '未知错误'))
+    console.error('图片上传失败:', error)
   }
 }
 
@@ -315,6 +522,11 @@ const handleRemoveImage = () => {
 
 // 保存笔记
 const handleSaveNote = async () => {
+  // 清除自动保存定时器
+  if (autoSaveTimer.value) {
+    clearTimeout(autoSaveTimer.value)
+  }
+  
   // 验证表单
   const isValid = await noteFormRef.value.validate().catch(() => false)
   if (!isValid) {
@@ -331,7 +543,7 @@ const handleSaveNote = async () => {
   const noteData = {
     title: noteForm.title,
     category_id: noteForm.category_id,
-    tags: noteForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+    tags: tagList.value,
     cover_image: noteForm.cover_image,
     status: noteForm.status,
     is_recommended: noteForm.is_recommended === '1',
@@ -358,7 +570,7 @@ const handleSaveNote = async () => {
     
     if (response.code === 200) {
       ElMessage.success(isEditMode ? '笔记更新成功' : '笔记创建成功')
-      // 跳转到笔记详情页或笔记列表页
+      // 跳转到笔记列表页
       router.push(`/admin/notes`)
     } else {
       ElMessage.error((response.message || '操作失败'))
@@ -374,7 +586,7 @@ const handleSaveNote = async () => {
 // 取消操作
 const handleCancel = () => {
   // 如果表单有内容，提示用户是否确认离开
-  if (noteForm.title || noteForm.content || noteForm.category_id) {
+  if (noteForm.title || noteForm.content || noteForm.category_id || tagList.value.length) {
     ElMessageBox.confirm(
       '确定要离开吗？未保存的更改将会丢失。',
       '确认离开',
@@ -393,6 +605,13 @@ const handleCancel = () => {
   }
 }
 
+// 组件卸载前清除定时器
+onBeforeUnmount(() => {
+  if (autoSaveTimer.value) {
+    clearTimeout(autoSaveTimer.value)
+  }
+})
+
 // 初始化页面数据
 onMounted(() => {
   fetchCategories()
@@ -405,7 +624,9 @@ onMounted(() => {
 <style scoped>
 .note-edit-page {
   padding: 1.5rem;
-  max-width: 1200px;
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -430,8 +651,34 @@ onMounted(() => {
   gap: 1rem;
 }
 
+.auto-save-indicator {
+  padding: 0.5rem 1rem;
+  background-color: #f0f9eb;
+  color: #52c41a;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.icon-loading {
+  animation: spin 1s linear infinite;
+}
+
+.icon-success {
+  color: #52c41a;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .note-form-container {
   padding: 1rem 0;
+  width: 100%;
 }
 
 .form-hint {
@@ -440,95 +687,46 @@ onMounted(() => {
   margin-top: 0.5rem;
 }
 
+.tags-display {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .editor-container {
   border: 1px solid #dcdfe6;
   border-radius: 4px;
   overflow: hidden;
-}
-
-.editor-tabs {
-  display: flex;
-  background-color: #f5f7fa;
-  border-bottom: 1px solid #dcdfe6;
-}
-
-.editor-tabs .el-button {
-  flex: 1;
-  text-align: center;
-  border-radius: 0;
-}
-
-.editor-tabs .el-button.active {
-  color: #409eff;
-  background-color: #fff;
-  border-bottom: 2px solid #409eff;
-}
-
-.markdown-editor-wrapper, .preview-wrapper {
-  padding: 1rem;
-  background-color: #fff;
-}
-
-.markdown-editor {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  resize: vertical;
 }
 
-.markdown-editor:focus {
-  outline: none;
-  border-color: #409eff;
+/* 确保表单和表单项全宽显示 */
+:deep(.el-form) {
+  width: 100%;
 }
 
-.markdown-preview {
-  min-height: 300px;
-  padding: 0.75rem;
-  background-color: #fafafa;
-  border-radius: 4px;
-  font-size: 0.875rem;
-  line-height: 1.6;
+:deep(.el-form-item) {
+  width: 100%;
+  margin-bottom: 1.25rem;
 }
 
-.markdown-preview h1, .markdown-preview h2, .markdown-preview h3 {
-  margin-top: 1.5rem;
-  margin-bottom: 1rem;
-  font-weight: 600;
+/* 确保编辑器所在的表单项全宽 */
+:deep(.el-form-item__content) {
+  width: calc(100% - 100px);
 }
 
-.markdown-preview h1 {
-  font-size: 1.5rem;
+.upload-file-container {
+  position: relative;
 }
 
-.markdown-preview h2 {
-  font-size: 1.25rem;
-}
-
-.markdown-preview h3 {
-  font-size: 1.125rem;
-}
-
-.markdown-preview p {
-  margin-bottom: 1rem;
-}
-
-.markdown-preview pre {
-  background-color: #f5f5f5;
-  padding: 0.75rem;
-  border-radius: 4px;
-  overflow-x: auto;
-  margin-bottom: 1rem;
-}
-
-.markdown-preview code {
-  background-color: #f5f5f5;
-  padding: 0.2rem 0.4rem;
-  border-radius: 3px;
-  font-family: 'Courier New', Courier, monospace;
+.upload-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
 }
 
 .preview-image {
@@ -557,11 +755,19 @@ onMounted(() => {
   .header-actions {
     justify-content: flex-start;
   }
+  
+  :deep(.el-form-item__content) {
+    width: 100%;
+  }
 }
 
 @media (max-width: 480px) {
   .header-actions {
     flex-direction: column;
+  }
+  
+  .page-title {
+    font-size: 1.25rem;
   }
 }
 </style>
