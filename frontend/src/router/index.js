@@ -40,8 +40,14 @@ const staticRoutes = [
     name: 'Login',
     component: () => import('@/views/auth/Login.vue'),
     meta: { requiresAuth: false }
-  }
-]
+  },
+  
+  // admin 根路径重定向到仪表盘
+  {
+    path: '/admin',
+    redirect: '/admin/dashboard',
+    meta: { requiresAuth: true }
+  }]
 
 // 管理员路由（需要权限控制）
 const adminRoutes = {
@@ -59,6 +65,55 @@ const adminRoutes = {
         title: '仪表盘',
         icon: 'dashboard',
         requiresAuth: true
+      }
+    },
+    // 分类创建和编辑路由
+    {
+      path: 'categories/create',
+      name: 'CategoryCreate',
+      component: () => import('@/views/admin/CategoryCreate.vue'),
+      meta: {
+        title: '创建分类',
+        requiresAuth: true
+      }
+    },
+    {
+      path: 'categories/edit/:id',
+      name: 'CategoryEdit',
+      component: () => import('@/views/admin/CategoryEdit.vue'),
+      meta: {
+        title: '编辑分类',
+        requiresAuth: true
+      }
+    },
+    {
+      path: 'notes',
+      name: 'NoteList',
+      component: () => import('@/views/admin/NoteList.vue'),
+      meta: {
+        title: '笔记管理',
+        requiresAuth: true,
+        permissions: ['admin:note:list']
+      }
+    },
+    {
+      path: 'notes/create',
+      name: 'NoteCreate',
+      component: () => import('@/views/admin/NoteEdit.vue'),
+      meta: {
+        title: '创建笔记',
+        requiresAuth: true,
+        permissions: ['admin:note:create']
+      }
+    },
+    {
+      path: 'notes/edit/:id',
+      name: 'NoteEdit',
+      component: () => import('@/views/admin/NoteEdit.vue'),
+      meta: {
+        title: '编辑笔记',
+        requiresAuth: true,
+        permissions: ['admin:note:edit']
       }
     }
   ]

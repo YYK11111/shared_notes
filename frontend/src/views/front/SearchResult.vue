@@ -42,14 +42,17 @@
       <!-- 筛选选项 -->
       <div class="filter-options">
         <span class="filter-label">分类筛选:</span>
-        <el-select v-model="categoryFilter" @change="handleFilterChange" placeholder="全部分类" multiple collapse-tags>
-          <el-option 
-            v-for="category in categories" 
-            :key="category.id" 
-            :label="category.name" 
-            :value="category.id"
-          ></el-option>
-        </el-select>
+        <!-- 替换为级联选择器 -->
+        <el-cascader
+          v-model="categoryFilter"
+          :options="categoryTree"
+          :props="cascaderProps"
+          placeholder="请选择分类"
+          multiple
+          collapse-tags
+          clearable
+          @change="handleFilterChange"
+        ></el-cascader>
         
         <span class="filter-label">时间范围:</span>
         <el-date-picker
@@ -111,7 +114,7 @@
         v-if="searchLoading"
         :count="5"
         item-class="result-skeleton"
-      />
+      /> 
       
       <!-- 分页 -->
       <div class="pagination-container" v-if="searchResults.length > 0">
@@ -168,12 +171,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { searchNotes, getHotSearchKeywords, getSearchHistory, addSearchHistory } from '@/api/search'
 import { getUserCategoryList } from '@/api/user'
 import dayjs from 'dayjs'
 import { CircleClose, Search } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 // 路由
 const route = useRoute()
@@ -186,11 +190,20 @@ const searchTime = ref(0)
 const hotKeywords = ref([])
 const searchHistory = ref([])
 const categories = ref([])
+const categoryTree = ref([])
 
 // 筛选和排序
 const sortBy = ref('relevance')
 const categoryFilter = ref([])
 const dateRange = ref(null)
+
+// 级联选择器配置 - 支持选择任意一级选项
+const cascaderProps = {
+  value: 'id',
+  label: 'name',
+  children: 'children',
+  checkStrictly: true // 支持选择任意一级选项
+}
 
 // 分页信息
 const pagination = ref({
@@ -206,12 +219,17 @@ const fetchSearchResults = async () => {
   searchLoading.value = true
   const startTime = Date.now()
   try {
+    // 处理分类筛选值 - 确保传递的是分类ID数组
+    const categoryIds = Array.isArray(categoryFilter.value) ? 
+      categoryFilter.value.flat(Infinity) // 扁平化嵌套数组
+      : [categoryFilter.value]
+    
     const res = await searchNotes({
       keyword: searchKeyword.value,
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
       sort: sortBy.value,
-      categories: categoryFilter.value,
+      categories: categoryIds.filter(id => id), // 过滤掉空值
       startDate: dateRange.value ? dateRange.value[0] : null,
       endDate: dateRange.value ? dateRange.value[1] : null
     })
@@ -249,14 +267,48 @@ const fetchSearchHistory = async () => {
   }
 }
 
-// 获取分类列表
+// 获取分类列表并构建树形结构
 const fetchCategories = async () => {
   try {
     const res = await getUserCategoryList()
-    categories.value = res.data
+    categories.value = res.data || []
+    // 构建分类树结构
+    categoryTree.value = buildCategoryTree(categories.value)
   } catch (error) {
     console.error('获取分类列表失败:', error)
+    ElMessage.error('获取分类列表失败')
   }
+}
+
+// 构建分类树结构
+const buildCategoryTree = (categories) => {
+  const categoryMap = new Map()
+  const roots = []
+  
+  // 先创建所有分类节点的映射
+  categories.forEach(category => {
+    categoryMap.set(category.id, { ...category, children: [] })
+  })
+  
+  // 构建树形结构
+  categories.forEach(category => {
+    const node = categoryMap.get(category.id)
+    if (category.parent_id === 0 || !category.parent_id) {
+      // 根节点
+      roots.push(node)
+    } else {
+      // 子节点
+      const parent = categoryMap.get(category.parent_id)
+      if (parent) {
+        parent.children.push(node)
+      } else {
+        // 如果父节点不存在，将其视为根节点
+        roots.push(node)
+      }
+    }
+  })
+  
+  return roots
 }
 
 // 保存搜索历史
@@ -386,7 +438,9 @@ onMounted(() => {
   
   // 如果有关键词，执行搜索
   if (searchKeyword.value) {
-    fetchSearchResults()
+    fetchSearchHistory().then(() => {
+      fetchSearchResults()
+    })
   }
 })
 </script>

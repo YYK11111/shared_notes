@@ -8,21 +8,35 @@ const { successResponse: formatSuccess, errorResponse: formatError } = require('
 // 获取分类列表
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, keyword, page = 1, pageSize = 10, parent_id } = req.query;
     
     let query = 'SELECT * FROM categories';
     const params = [];
+    let whereClause = '';
     
-    if (status !== undefined) {
-      query += ' WHERE status = ?';
-      params.push(status);
+    // 构建WHERE条件
+    if (status !== undefined || keyword) {
+      whereClause = ' WHERE';
+      
+      if (status !== undefined) {
+        whereClause += ' status = ?';
+        params.push(status);
+      }
+      
+      if (keyword) {
+        if (status !== undefined) whereClause += ' AND';
+        whereClause += ' name LIKE ?';
+        params.push(`%${keyword}%`);
+      }
     }
     
-    query += ' ORDER BY priority ASC, id ASC';
+    // 添加分页
+    const offset = (page - 1) * pageSize;
     
-    const [categories] = await pool.execute(query, params);
+    // 执行查询获取符合条件的所有数据
+    const [allCategories] = await pool.execute(query + whereClause + ' ORDER BY priority ASC, id ASC', params);
     
-    // 构建分类树
+    // 构建分类树函数
     const buildCategoryTree = (categories, parentId = 0) => {
       const tree = [];
       
@@ -39,16 +53,58 @@ router.get('/', authMiddleware, async (req, res) => {
       return tree;
     };
     
-    const categoryTree = buildCategoryTree(categories);
+    // 构建分类树 - 如果提供了parent_id，则从该parent_id开始构建
+    let categoryTree;
+    if (parent_id !== undefined && parent_id !== '') {
+      const targetParentId = parseInt(parent_id);
+      
+      // 先检查目标父分类是否存在
+      const [parentCategoryCheck] = await pool.execute('SELECT * FROM categories WHERE id = ?', [targetParentId]);
+      
+      if (parentCategoryCheck.length === 0) {
+        // 父分类不存在，返回空数组
+        categoryTree = [];
+      } else {
+        // 构建完整树
+        const fullTree = buildCategoryTree(allCategories);
+        
+        // 找到包含父分类ID的子树
+        const findSubtree = (categories, id) => {
+          for (const category of categories) {
+            if (category.id === id) {
+              return [category]; // 包装成数组以便保持一致的返回格式
+            }
+            if (category.children && category.children.length > 0) {
+              const found = findSubtree(category.children, id);
+              if (found) {
+                return found;
+              }
+            }
+          }
+          return null;
+        };
+        
+        categoryTree = findSubtree(fullTree, targetParentId) || [];
+      }
+    } else {
+      // 正常构建分类树
+      categoryTree = buildCategoryTree(allCategories);
+    }
     
-    // 记录操作日志
-    const decoded = req.user;
-    await logAdminAction(decoded.id, decoded.username, '获取分类列表', '分类', null, { status });
+    // 对分类树进行分页
+    const paginatedCategories = categoryTree.slice(offset, offset + parseInt(pageSize));
     
-    return res.json(formatSuccess({
-      list: categoryTree,
-      total: categoryTree.length
-    }, '获取分类列表成功'));
+    // 获取总数量（不进行分页前的总数）
+    const totalCount = categoryTree.length;
+      
+      // 记录操作日志
+      const decoded = req.user;
+      await logAdminAction(decoded.id, decoded.username, '获取分类列表', '分类', null, { status });
+      
+      return res.json(formatSuccess({
+        list: paginatedCategories,
+        total: totalCount
+      }, '获取分类列表成功'));
     
   } catch (error) {
     console.error('获取分类列表失败:', error);

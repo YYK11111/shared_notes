@@ -49,11 +49,15 @@ router.get('/', authMiddleware, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 10;
     const offset = (page - 1) * pageSize;
-    const { keyword, categoryId, status, startDate, endDate } = req.query;
+    const { keyword, categoryId, status, startDate, endDate, parentCategoryId } = req.query;
+    
+    // 兼容前端传递的category_id参数
+    const actualCategoryId = req.query.category_id || categoryId;
     
     console.log('处理后的分页参数:', { page, pageSize, offset });
     
-    let query = 'SELECT n.*, GROUP_CONCAT(c.name) as categories FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id';
+    // 不选择content字段以提升加载速度
+    let query = 'SELECT n.id, n.title, n.cover_image, n.status, n.is_top, n.top_expire_time, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.view_count, n.created_at, n.updated_at, GROUP_CONCAT(c.name) as categories FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id';
     const whereClause = [];
     const params = [];
     
@@ -62,9 +66,16 @@ router.get('/', authMiddleware, async (req, res) => {
       params.push(`%${keyword}%`, `%${keyword}%`);
     }
     
-    if (categoryId) {
+    if (actualCategoryId) {
       whereClause.push('nc.category_id = ?');
-      params.push(categoryId);
+      params.push(actualCategoryId);
+    }
+    
+    // 支持按父类别筛选
+    if (parentCategoryId) {
+      // 查询该父分类下的所有子分类ID
+      whereClause.push('c.parent_id = ?');
+      params.push(parentCategoryId);
     }
     
     if (status !== undefined && status !== '') {
@@ -98,13 +109,13 @@ router.get('/', authMiddleware, async (req, res) => {
     
     // 获取总条数
     let countQuery = 'SELECT COUNT(DISTINCT n.id) as total FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id';
-    const countParams = params.slice(0, -2); // 移除LIMIT和OFFSET参数
     
+    // 直接使用params数组，因为LIMIT和OFFSET是直接拼接到SQL中的，没有添加到params中
     if (whereClause.length > 0) {
       countQuery += ' WHERE ' + whereClause.join(' AND ');
     }
     
-    const [countResult] = await pool.execute(countQuery, countParams);
+    const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
     
     const totalPages = Math.ceil(total / pageSize);
@@ -119,7 +130,15 @@ router.get('/', authMiddleware, async (req, res) => {
     
   } catch (error) {
     console.error('获取笔记列表失败:', error);
-    return res.status(500).json(formatError('获取笔记列表失败，请稍后重试', 500));
+    
+    // 提供更具体的错误信息，帮助调试
+    const errorDetails = {
+      message: '获取笔记列表失败，请稍后重试',
+      errorType: error.name || 'UnknownError',
+      originalError: process.env.NODE_ENV === 'development' ? error.message : undefined
+    };
+    
+    return res.status(500).json(formatError(errorDetails.message, 500, errorDetails));
   }
 });
 

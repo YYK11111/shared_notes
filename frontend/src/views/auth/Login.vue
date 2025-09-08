@@ -55,9 +55,11 @@ import { ref, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Key, Refresh } from '@element-plus/icons-vue'
-import { login, getCaptcha } from '@/api/auth'
+import { getCaptcha } from '@/api/auth'
+import { useAuthStore } from '@/store/auth'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const loginFormRef = ref(null)
 const loading = ref(false)
 const captchaImage = ref('')
@@ -142,22 +144,17 @@ const handleLogin = async () => {
 
     loading.value = true
 
-    // 调用真实的登录API
     // 注意：根据后端API文档，需要将captchaToken重命名为captchaId
     const loginParams = {
       ...loginForm.value,
       captchaId: loginForm.value.captchaToken
     }
-    const res = await login(loginParams)
+    
+    // 使用auth store的login方法处理登录
+    const res = await authStore.login(loginParams)
 
     // 检查是否登录成功
     if (res.code === 200 && res.data && res.data.token) {
-      // 登录成功，保存token
-      localStorage.setItem('token', res.data.token)
-      if (res.data.refreshToken) {
-        localStorage.setItem('refreshToken', res.data.refreshToken)
-      }
-
       // 使用后端返回的message信息，而不是硬编码
       ElMessage.success(res.msg || res.message || '登录成功')
       // 登录成功后跳转到管理后台首页，触发路由权限获取

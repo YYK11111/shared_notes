@@ -85,6 +85,29 @@ export const getNoteStats = () => {
   })
 }
 
+// 切换笔记置顶状态
+export const toggleNoteTop = (id, top) => {
+  return request({
+    url: `/notes/${id}/top`,
+    method: 'put',
+    data: {
+      top
+    }
+  })
+}
+
+// 批量修改笔记状态
+export const batchUpdateNoteStatus = (ids, status) => {
+  return request({
+    url: '/notes/batch-update-status',
+    method: 'post',
+    data: {
+      ids,
+      status
+    }
+  })
+}
+
 // 审核通过笔记
 export const approveNote = (id) => {
   return request({

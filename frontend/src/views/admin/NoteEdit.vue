@@ -152,8 +152,8 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import dayjs from 'dayjs'
 import { Check, ArrowLeft, Plus, Delete } from '@element-plus/icons-vue'
-import { createNote, updateNote, getNoteById, getCategoryList } from '@/api/note'
-import { uploadImage } from '@/api/upload'
+import { ElMessage } from 'element-plus'
+import { createNote, updateNote, getNoteById, getCategoryList, uploadNoteImage } from '@/api/note'
 import { marked } from 'marked'
 
 const router = useRouter()

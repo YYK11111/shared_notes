@@ -245,7 +245,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getAdminProfile, updateAdminProfile, changeAdminPassword, getAdminSecuritySettings, updateAdminSecuritySettings, getAdminNotificationSettings, updateAdminNotificationSettings } from '@/api/admin'
-import { uploadImage } from '@/api/upload'
+import { uploadNoteImage } from '@/api/note'
 
 // 状态变量
 const loading = ref(false)

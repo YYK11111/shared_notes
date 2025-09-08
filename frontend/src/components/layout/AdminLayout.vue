@@ -27,8 +27,8 @@
                 <el-icon><Document /></el-icon>
                 <span>笔记管理</span>
               </template>
-              <el-menu-item index="notes">笔记列表</el-menu-item>
-              <el-menu-item index="categories">分类管理</el-menu-item>
+              <el-menu-item index="/admin/notes">笔记列表</el-menu-item>
+              <el-menu-item index="/admin/categories">分类管理</el-menu-item>
             </el-sub-menu>
             
             <el-menu-item index="feedback">
@@ -149,12 +149,14 @@ const handleLogout = async () => {
   height: 100%;
 }
 
+/* 侧边栏样式 - 改为白色背景 */
 .sidebar {
   width: 240px;
-  background-color: #2c3e50;
-  color: #fff;
+  background-color: #fff;
+  color: #333;
   transition: width 0.3s;
   flex-shrink: 0;
+  border-right: 1px solid #eee;
 }
 
 .sidebar.collapsed {
@@ -166,7 +168,7 @@ const handleLogout = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid #34495e;
+  border-bottom: 1px solid #eee;
 }
 
 .sidebar .logo {
@@ -175,7 +177,7 @@ const handleLogout = async () => {
 }
 
 .sidebar .logo a {
-  color: #fff;
+  color: #1890ff;
   text-decoration: none;
 }
 
@@ -183,11 +185,34 @@ const handleLogout = async () => {
   padding: 20px 0;
 }
 
+/* 侧边栏菜单样式调整 */
+.el-menu-vertical-demo {
+  background-color: #fff !important;
+  border-right: none !important;
+}
+
+.el-menu-vertical-demo .el-menu-item,
+.el-menu-vertical-demo .el-sub-menu__title {
+  color: #606266;
+}
+
+.el-menu-vertical-demo .el-menu-item:hover,
+.el-menu-vertical-demo .el-sub-menu__title:hover {
+  color: #1890ff;
+  background-color: #f0f9ff !important;
+}
+
+.el-menu-vertical-demo .el-menu-item.is-active {
+  color: #1890ff;
+  background-color: #e6f7ff !important;
+}
+
 .main-content {
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  width: 100%;
 }
 
 .main-header {
@@ -204,20 +229,37 @@ const handleLogout = async () => {
   margin-right: 10px;
 }
 
+/* 修复用户信息垂直居中问题 */
 .user-info {
   display: flex;
   align-items: center;
   cursor: pointer;
+  height: 100%;
+}
+
+.user-info .el-avatar {
+  align-self: center;
 }
 
 .user-name {
   margin: 0 8px;
+  align-self: center;
 }
 
+.user-info .el-icon--right {
+  align-self: center;
+}
+
+/* 优化内容区域，使其填充满 */
 .content-wrapper {
   flex: 1;
-  padding: 20px;
+  padding: 0;
   overflow-y: auto;
-  background-color: #f5f7fa;
+  background-color: #fff;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 </style>

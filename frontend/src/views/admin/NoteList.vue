@@ -17,6 +17,20 @@
               </el-icon>
               批量删除
             </el-button>
+            <el-dropdown @command="handleBatchStatusChange" :disabled="selectedNotes.length === 0">
+              <el-button>
+                批量修改状态
+                <el-icon class="el-icon--right">
+                  <el-icon><svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" width="16" height="16"><path fill="currentColor" d="M840.4 305.3H183.6c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h656.8c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM183.6 499.7h656.8c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H183.6c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zM183.6 694h656.8c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H183.6c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8z"/></svg></el-icon>
+                </el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="1">发布</el-dropdown-item>
+                  <el-dropdown-item command="0">设为草稿</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
         </div>
       </template>
@@ -28,7 +42,7 @@
         <el-cascader
           v-model="categoryFilter"
           :options="categories"
-          :props="{ label: 'name', value: 'id', children: 'children' }"
+          :props="{ label: 'name', value: 'id', children: 'children', checkStrictly: true }"
           placeholder="选择分类"
           class="filter-select"
           @change="handleCategoryChange"
@@ -38,10 +52,8 @@
         <input type="hidden" v-model="selectedCategoryId" />
         <el-select v-model="statusFilter" placeholder="选择状态" class="filter-select">
           <el-option label="全部" value="" />
-          <el-option label="已发布" value="published" />
-          <el-option label="草稿" value="draft" />
-          <el-option label="审核中" value="reviewing" />
-          <el-option label="已拒绝" value="rejected" />
+          <el-option label="已发布" value="1" />
+          <el-option label="草稿" value="0" />
         </el-select>
         <el-date-picker v-model="dateRange" type="daterange" range-separator="至" start-placeholder="开始日期"
           end-placeholder="结束日期" class="date-filter" @change="handleDateFilter" />
@@ -61,13 +73,23 @@
         </el-table-column>
         <el-table-column prop="categories" label="分类" width="120">
           <template #default="{ row }">
-            <span>{{ getCategoryName(row.categories) }}</span>
+            <span>{{ row.categories || '未分类' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="author" label="作者" width="120" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="is_top" label="置顶" width="80" align="center">
+          <template #default="{ row }">
+            <el-icon v-if="row.is_top === 1" style="color: #f56c6c;">
+              <StarFilled />
+            </el-icon>
+            <el-icon v-else style="color: #c0c4cc;">
+              <Star />
+            </el-icon>
           </template>
         </el-table-column>
         <el-table-column prop="views" label="浏览量" width="100" sortable />
@@ -82,10 +104,11 @@
             <span>{{ formatDate(row.updated_at) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEditNote(row.id)">编辑</el-button>
             <el-button link type="danger" @click="handleDeleteNote(row.id)">删除</el-button>
+            <el-button link :type="row.is_top === 1 ? 'info' : 'warning'" @click="handleToggleTop(row.id, row.is_top === 1 ? 0 : 1)">{{ row.is_top === 1 ? '取消置顶' : '置顶' }}</el-button>
             <el-button link v-if="row.status === 'reviewing'" @click="handleApproveNote(row.id)">通过</el-button>
             <el-button link v-if="row.status === 'reviewing'" @click="handleRejectNote(row.id)">拒绝</el-button>
           </template>
@@ -106,10 +129,10 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { getNoteList, deleteNote, approveNote, rejectNote } from '@/api/note'
+import { getNoteList, deleteNote, approveNote, rejectNote, toggleNoteTop, batchUpdateNoteStatus } from '@/api/note'
 import { getCategoryList } from '@/api/category'
 
 const router = useRouter()
@@ -223,12 +246,12 @@ const handleSelectionChange = (selection) => {
 
 // 创建新笔记
 const handleCreateNote = () => {
-  router.push('/admin/note/create')
+  router.push('/admin/notes/create')
 }
 
 // 编辑笔记
 const handleEditNote = (id) => {
-  router.push('/admin/note/edit/' + id)
+  router.push('/admin/notes/edit/' + id)
 }
 
 // 查看笔记详情
@@ -343,6 +366,63 @@ const handleRejectNote = async (id) => {
   }
 }
 
+// 切换笔记置顶状态
+const handleToggleTop = async (id, top) => {
+  try {
+    const actionText = top === 1 ? '置顶' : '取消置顶'
+    await ElMessageBox.confirm(
+      `确定要${actionText}这条笔记吗？`,
+      `确认${actionText}`,
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: top === 1 ? 'warning' : 'success'
+      }
+    )
+
+    await toggleNoteTop(id, top)
+    ElMessage.success(`笔记${actionText}成功`)
+    fetchNotes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(`${actionText}操作失败：` + (error.message || '未知错误'))
+      console.error(`${actionText}笔记失败:`, error)
+    }
+  }
+}
+
+// 批量修改笔记状态
+const handleBatchStatusChange = async (status) => {
+  if (selectedNotes.value.length === 0) {
+    ElMessage.warning('请选择要操作的笔记')
+    return
+  }
+
+  try {
+    const statusText = status === '1' ? '发布' : '设为草稿'
+    await ElMessageBox.confirm(
+      `确定要将选中的 ${selectedNotes.value.length} 条笔记${statusText}吗？`,
+      `批量${statusText}确认`,
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: status === '1' ? 'success' : 'warning'
+      }
+    )
+
+    const ids = selectedNotes.value.map(note => note.id)
+    await batchUpdateNoteStatus(ids, parseInt(status))
+    ElMessage.success(`成功将 ${selectedNotes.value.length} 条笔记${statusText}`)
+    selectedNotes.value = []
+    fetchNotes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(`批量${statusText}失败：` + (error.message || '未知错误'))
+      console.error(`批量${statusText}失败:`, error)
+    }
+  }
+}
+
 // 格式化日期
 const formatDate = (dateString) => {
   return dayjs(dateString).format('YYYY-MM-DD HH:mm:ss')
@@ -355,10 +435,13 @@ const getCategoryName = (categoryId) => {
     return '未分类'
   }
   
+  // 确保categoryId是字符串类型以便比较
+  const targetId = String(categoryId)
+  
   // 递归查找分类
   const findCategoryRecursive = (cats, id) => {
     for (const cat of cats) {
-      if (cat.id === id) {
+      if (String(cat.id) === id) {
         return cat
       }
       // 如果有子分类，递归查找
@@ -372,17 +455,15 @@ const getCategoryName = (categoryId) => {
     return null
   }
   
-  const category = findCategoryRecursive(categories.value, categoryId)
+  const category = findCategoryRecursive(categories.value, targetId)
   return category ? category.name : '未分类'
 }
 
 // 获取状态文本
 const getStatusText = (status) => {
   const statusMap = {
-    published: '已发布',
-    draft: '草稿',
-    reviewing: '审核中',
-    rejected: '已拒绝'
+    1: '已发布',
+    0: '草稿'
   }
   return statusMap[status] || '未知'
 }
@@ -390,12 +471,10 @@ const getStatusText = (status) => {
 // 获取状态标签类型
 const getStatusType = (status) => {
   const typeMap = {
-    published: 'success',
-    draft: 'info',
-    reviewing: 'warning',
-    rejected: 'danger'
+    1: 'success',
+    0: 'info'
   }
-  return typeMap[status] || 'default'
+  return typeMap[status] || 'primary'
 }
 
 // 初始化页面数据
@@ -407,9 +486,12 @@ onMounted(() => {
 
 <style scoped>
 .note-list-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
 }
 
 .card-header {

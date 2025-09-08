@@ -30,9 +30,19 @@
           class="search-input"
           @keyup.enter="handleSearch"
         />
-        <el-select v-model="parentFilter" placeholder="选择父分类" class="filter-select">
+        <el-cascader
+          v-model="parentFilter"
+          :options="cascaderOptions"
+          placeholder="选择父分类"
+          class="filter-select"
+          clearable
+          :show-all-levels="false"
+          :props="{ checkStrictly: true }"
+        />
+        <el-select v-model="statusFilter" placeholder="选择状态" class="filter-select">
           <el-option label="全部" value="" />
-          <el-option v-for="category in parentCategories" :key="category.id" :label="category.name" :value="category.id" />
+          <el-option label="启用" :value="1" />
+          <el-option label="禁用" :value="0" />
         </el-select>
         <el-button type="primary" @click="handleSearch" class="search-button">搜索</el-button>
         <el-button @click="resetFilters" class="reset-button">重置</el-button>
@@ -42,16 +52,19 @@
       <el-table
         v-loading="loading"
         :data="categoriesData"
-        style="width: 100%"
+        style="width: 100%; overflow-x: auto;"
         border
         @selection-change="handleSelectionChange"
-        :row-key="(row) => row.id"
+        row-key="id"
+        :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column prop="id" label="ID" width="80" sortable />
+        <el-table-column prop="id" label="ID" min-width="80" sortable />
         <el-table-column prop="name" label="分类名称" min-width="200">
-          <template #default="{ row }">
-            <span class="category-name">{{ row.name }}</span>
+          <template #default="{ row, $index }">
+            <span :style="{ marginLeft: (row.level - 1) * 15 + 'px' }">
+              {{ row.name }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column prop="parent_id" label="父分类" width="150">
@@ -64,8 +77,8 @@
         <el-table-column prop="note_count" label="笔记数量" width="100" sortable />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'enabled' ? 'success' : 'danger'">
-              {{ row.status === 'enabled' ? '启用' : '禁用' }}
+            <el-tag :type="row.isEnabled ? 'success' : 'danger'">
+              {{ row.isEnabled ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -84,7 +97,7 @@
             <el-button link type="primary" @click="handleEditCategory(row.id)">编辑</el-button>
             <el-button link type="danger" @click="handleDeleteCategory(row.id)">删除</el-button>
             <el-button link @click="toggleCategoryStatus(row.id, row.status)">
-              {{ row.status === 'enabled' ? '禁用' : '启用' }}
+              {{ row.isEnabled ? '禁用' : '启用' }}
             </el-button>
           </template>
         </el-table-column>
@@ -110,9 +123,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Plus, Delete, Sort } from '@element-plus/icons-vue'
+import { Plus, Delete, Sort, Search } from '@element-plus/icons-vue'
 
-import { getCategoryList, deleteCategory, updateCategoryStatus, sortCategories } from '@/api/category'
+import { getCategoryList, deleteCategory, updateCategoryStatus, sortCategories, getCategoryStats } from '@/api/category'
 
 const router = useRouter()
 
@@ -127,7 +140,38 @@ const selectedCategories = ref([])
 
 // 搜索和筛选条件
 const searchKeyword = ref('')
-const parentFilter = ref('')
+const parentFilter = ref(undefined) // 父分类筛选器，级联选择器使用
+const statusFilter = ref(1) // 默认显示启用状态
+const cascaderOptions = ref([]) // 级联选择器数据
+
+// 处理嵌套分类数据，添加level字段但保留树形结构
+const processCategoryData = (categories) => {
+  // 递归处理分类数据，包括嵌套的children结构
+  const processCategory = (category, level = 1) => {
+    const processedCategory = {
+      ...category,
+      level,
+      // 转换状态为布尔值便于前端使用
+      isEnabled: category.status === 1,
+      // 设置hasChildren属性以支持树形表格
+      hasChildren: category.children && category.children.length > 0
+    }
+    
+    // 如果有子分类，递归处理
+    if (category.children && category.children.length > 0) {
+      processedCategory.children = category.children.map(child => 
+        processCategory(child, level + 1)
+      )
+    }
+    
+    return processedCategory
+  }
+  
+  // 处理所有分类
+  return categories.map(category => {
+    return processCategory(category)
+  })
+}
 
 // 获取分类列表
 const fetchCategories = async () => {
@@ -138,15 +182,93 @@ const fetchCategories = async () => {
       page: currentPage.value,
       pageSize: pageSize.value,
       keyword: searchKeyword.value,
-      parent_id: parentFilter.value || undefined
+      // 只有当parentFilter有有效值时才传递parent_id参数
+      // 级联选择器返回数组，取最后一个元素作为parent_id
+      // 避免传递null值，而是传递undefined（会被axios忽略）
+      ...(parentFilter.value !== undefined && parentFilter.value !== null && parentFilter.value !== '' && {
+        parent_id: Array.isArray(parentFilter.value) ? 
+          (parentFilter.value.length > 0 ? Number(parentFilter.value[parentFilter.value.length - 1]) : undefined) : 
+          Number(parentFilter.value)
+      }),
+      // 只有当statusFilter有有效值时才传递status参数
+      ...(statusFilter.value !== '' && { status: statusFilter.value })
     }
     
-    const response = await getCategoryList(params)
-    categoriesData.value = response.data?.items || []
-    totalCount.value = response.data?.total || 0
+    // 添加调试信息
+    console.log('查询参数:', params)
+    
+    // 确保parent_id为数字或undefined，与后端数据库类型一致
+    if (params.parent_id !== undefined) {
+      params.parent_id = Number(params.parent_id)
+    }
+    
+    // 1. 获取分类列表
+    const categoryResponse = await getCategoryList(params)
+    let allCategories = categoryResponse.data?.list || []
+    
+    // 2. 使用processCategoryData函数处理分类数据，添加正确的level层级
+    let processedCategories = processCategoryData(allCategories)
+    
+      // 3. 获取分类笔记数量统计
+    let categoryStats = []
+    try {
+      const statsResponse = await getCategoryStats()
+      if (statsResponse.code === 200 && Array.isArray(statsResponse.data)) {
+        categoryStats = statsResponse.data
+      }
+    } catch (error) {
+      console.error('获取分类笔记数量失败:', error)
+      // 如果获取失败，继续使用默认值0
+    }
+    
+    // 4. 为所有分类（包括子分类）设置笔记数量
+    function setNoteCountForAllCategories(categories) {
+      return categories.map(category => {
+        const processedCategory = {
+          ...category,
+          note_count: 0
+        }
+        
+        // 从统计数据中查找对应分类的笔记数量
+        const categoryStat = categoryStats.find(stat => stat.id === category.id)
+        if (categoryStat && typeof categoryStat.note_count === 'number') {
+          processedCategory.note_count = categoryStat.note_count
+        }
+        
+        if (processedCategory.children && processedCategory.children.length > 0) {
+          processedCategory.children = setNoteCountForAllCategories(processedCategory.children)
+        }
+        
+        return processedCategory
+      })
+    }
+    
+    processedCategories = setNoteCountForAllCategories(processedCategories)
+    
+    // 4. 设置最终的分类数据
+    categoriesData.value = processedCategories
+    
+    // 计算总数量，需要递归统计所有节点
+    const countTotalCategories = (categories) => {
+      let count = categories.length
+      categories.forEach(category => {
+        if (category.children && category.children.length > 0) {
+          count += countTotalCategories(category.children)
+        }
+      })
+      return count
+    }
+    
+    totalCount.value = countTotalCategories(processedCategories)
+    
+    // 更新父分类列表
+    fetchParentCategories()
+    
+    // 输出处理后的数据结构到控制台
+    console.log('处理后的分类数据:', categoriesData.value)
   } catch (error) {
-    ElMessage.error('获取分类列表失败：' + (error.message || '未知错误'))
     console.error('获取分类列表失败:', error)
+    ElMessage.error('获取分类列表失败：' + (error.message || '未知错误'))
   } finally {
     loading.value = false
   }
@@ -155,15 +277,34 @@ const fetchCategories = async () => {
 // 获取父级分类列表
 const fetchParentCategories = async () => {
   try {
-    // 实际项目中应该调用获取分类列表的API
-    // 这里使用模拟数据
-    parentCategories.value = [
-      { id: 1, name: '前端开发' },
-      { id: 2, name: '后端开发' },
-      { id: 3, name: '数据库' },
-      { id: 4, name: 'DevOps' },
-      { id: 5, name: '人工智能' }
-    ]
+    // 直接从API获取所有分类数据，不使用当前筛选结果
+    const response = await getCategoryList({ pageSize: 1000 }) // 获取足够多的分类
+    const allCategories = response.data?.list || []
+    
+    // 处理分类数据为级联选择器需要的格式
+    const formatForCascader = (categories) => {
+      return categories.map(category => {
+        const formattedCategory = {
+          value: category.id,
+          label: category.name
+        }
+        
+        if (category.children && category.children.length > 0) {
+          formattedCategory.children = formatForCascader(category.children)
+        }
+        
+        return formattedCategory
+      })
+    }
+    
+    // 设置级联选择器数据
+    cascaderOptions.value = formatForCascader(allCategories)
+    
+    // 同时保留原有的扁平格式数据供旧代码使用
+    parentCategories.value = allCategories.map(category => ({ 
+      id: category.id, 
+      name: category.name 
+    }))
   } catch (error) {
     ElMessage.error('获取父级分类列表失败')
     console.error('获取父级分类列表失败:', error)
@@ -179,7 +320,8 @@ const handleSearch = () => {
 // 重置筛选条件
 const resetFilters = () => {
   searchKeyword.value = ''
-  parentFilter.value = ''
+  parentFilter.value = undefined
+  statusFilter.value = 1 // 重置为默认显示启用状态
   currentPage.value = 1
   fetchCategories()
 }
@@ -203,12 +345,12 @@ const handleSelectionChange = (selection) => {
 
 // 创建新分类
 const handleCreateCategory = () => {
-  router.push('/admin/category/create')
+  router.push('/admin/categories/create')
 }
 
 // 编辑分类
 const handleEditCategory = (id) => {
-  router.push('/admin/category/edit/' + id)
+  router.push('/admin/categories/edit/' + id)
 }
 
 // 删除分类
@@ -301,8 +443,9 @@ const handleBatchDelete = async () => {
 // 切换分类状态
 const toggleCategoryStatus = async (id, currentStatus) => {
   try {
-    const newStatus = currentStatus === 'enabled' ? 'disabled' : 'enabled'
-    const actionText = newStatus === 'enabled' ? '启用' : '禁用'
+    // 根据后端API，状态是数字1(启用)或0(禁用)
+    const newStatus = currentStatus === 1 ? 0 : 1
+    const actionText = newStatus === 1 ? '启用' : '禁用'
     
     await ElMessageBox.confirm(
       `确定要${actionText}这个分类吗？`,
@@ -310,7 +453,7 @@ const toggleCategoryStatus = async (id, currentStatus) => {
       {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
-        type: newStatus === 'enabled' ? 'success' : 'warning'
+        type: newStatus === 1 ? 'success' : 'warning'
       }
     )
     
@@ -344,14 +487,18 @@ const formatDate = (dateString) => {
 
 // 获取父分类名称
 const getParentCategoryName = (parentId) => {
-  if (!parentId) return '无'
-  const category = parentCategories.value.find(cat => cat.id === parentId)
-  return category ? category.name : '未知'
+  if (!parentId || parentId === 0) return '无'
+  // 优先从完整分类数据中查找父分类
+  const category = categoriesData.value.find(cat => cat.id === parentId)
+  if (category) return category.name
+  // 如果找不到，再从父分类列表中查找
+  const parentCategory = parentCategories.value.find(cat => cat.id === parentId)
+  return parentCategory ? parentCategory.name : '未知'
 }
 
 // 初始化页面数据
-onMounted(() => {
-  fetchParentCategories()
+onMounted(async () => {
+  await fetchParentCategories()
   fetchCategories()
 })
 </script>
@@ -359,8 +506,6 @@ onMounted(() => {
 <style scoped>
 .category-list-page {
   padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
 }
 
 .card-header {

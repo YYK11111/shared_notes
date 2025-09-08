@@ -410,8 +410,11 @@ onMounted(() => {
 <style scoped>
 .dashboard-page {
   padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 /* 统计概览 */

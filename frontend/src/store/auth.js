@@ -5,7 +5,19 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('token') || '',
     refreshToken: localStorage.getItem('refreshToken') || '',
-    userInfo: JSON.parse(localStorage.getItem('userInfo') || '{}'),
+    userInfo: (() => {
+      try {
+        const userInfoStr = localStorage.getItem('userInfo');
+        // 检查是否是undefined字符串或无效的JSON
+        if (userInfoStr === 'undefined' || userInfoStr === null) {
+          return {};
+        }
+        return JSON.parse(userInfoStr);
+      } catch (error) {
+        console.error('解析用户信息失败:', error);
+        return {};
+      }
+    })(),
     routes: []
   }),
   

@@ -43,10 +43,10 @@ export const deleteCategory = (id) => {
   })
 }
 
-// 获取分类统计
+// 获取分类笔记数量统计
 export const getCategoryStats = () => {
   return request({
-    url: '/categories/stats',
+    url: '/categories/stats/note-count',
     method: 'get'
   })
 }
@@ -55,6 +55,15 @@ export const getCategoryStats = () => {
 export const sortCategories = (data) => {
   return request({
     url: '/categories/sort',
+    method: 'put',
+    data
+  })
+}
+
+// 更新分类状态
+export const updateCategoryStatus = (id, data) => {
+  return request({
+    url: `/categories/${id}`,
     method: 'put',
     data
   })
