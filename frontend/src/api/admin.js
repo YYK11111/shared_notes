@@ -12,7 +12,7 @@ export const getAdminList = (params) => {
 // 创建管理员
 export const createAdmin = (data) => {
   return request({
-    url: '/admin/admins',
+    url: '/admin',
     method: 'post',
     data
   })
@@ -21,7 +21,7 @@ export const createAdmin = (data) => {
 // 更新管理员信息
 export const updateAdmin = (id, data) => {
   return request({
-    url: `/admin/admins/${id}`,
+    url: `/admin/${id}`,
     method: 'put',
     data
   })
@@ -30,7 +30,7 @@ export const updateAdmin = (id, data) => {
 // 更新管理员状态
 export const updateAdminStatus = (id, data) => {
   return request({
-    url: `/admin/admins/${id}/status`,
+    url: `/admin/status/${id}`,
     method: 'put',
     data
   })
@@ -39,7 +39,7 @@ export const updateAdminStatus = (id, data) => {
 // 删除管理员
 export const deleteAdmin = (id) => {
   return request({
-    url: `/admin/admins/${id}`,
+    url: `/admin/${id}`,
     method: 'delete'
   })
 }
@@ -47,7 +47,7 @@ export const deleteAdmin = (id) => {
 // 重置管理员密码
 export const resetAdminPassword = (id, data) => {
   return request({
-    url: `/admin/admins/${id}/reset-password`,
+    url: `/admin/${id}/reset-password`,
     method: 'put',
     data
   })
@@ -84,6 +84,23 @@ export const deleteRole = (id) => {
   return request({
     url: `/admin/roles/${id}`,
     method: 'delete'
+  })
+}
+
+// 更新角色状态
+export const updateRoleStatus = (id, data) => {
+  return request({
+    url: `/admin/roles/${id}/status`,
+    method: 'put',
+    data
+  })
+}
+
+// 获取单个管理员详情
+export const getAdminDetail = (id) => {
+  return request({
+    url: `/admin/${id}`,
+    method: 'get'
   })
 }
 

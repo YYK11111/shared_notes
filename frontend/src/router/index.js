@@ -26,10 +26,15 @@ const staticRoutes = [
         name: 'CategoryNotes',
         component: () => import('@/views/front/CategoryDetail.vue')
       },
-      {
+      {        
         path: 'search',
         name: 'Search',
         component: () => import('@/views/front/SearchResult.vue')
+      },
+      {
+        path: 'feedback',
+        name: 'Feedback',
+        component: () => import('@/views/front/Feedback.vue')
       }
     ]
   },
@@ -115,6 +120,84 @@ const adminRoutes = {
         requiresAuth: true,
         permissions: ['admin:note:edit']
       }
+    },
+    {
+      path: 'notes/preview/:id',
+      name: 'NotePreview',
+      component: () => import('@/views/admin/NotePreview.vue'),
+      meta: {
+        title: '笔记预览',
+        requiresAuth: true,
+        permissions: ['admin:note:list']
+      }
+    },
+    {
+      path: 'admins/create',
+      name: 'AdminCreate',
+      component: () => import('@/views/admin/AdminCreate.vue'),
+      meta: {
+        title: '创建管理员',
+        requiresAuth: true,
+        permissions: ['admin:admin:create']
+      }
+    },
+    // 编辑管理员
+    {
+      path: 'admins/edit/:id',
+      name: 'AdminEdit',
+      component: () => import('@/views/admin/AdminEdit.vue'),
+      meta: {
+        title: '编辑管理员',
+        requiresAuth: true,
+        permissions: ['admin:admin:edit']
+      }
+    },
+    // 角色管理
+    {
+      path: 'roles',
+      name: 'RoleList',
+      component: () => import('@/views/admin/RoleList.vue'),
+      meta: {
+        title: '角色管理',
+        requiresAuth: true,
+        permissions: ['admin:role:list']
+      }
+    },
+    // 系统配置路由组
+    {          path: 'config',          name: 'Config',          component: () => import('@/views/admin/config/SystemConfig.vue'),          meta: {            title: '系统配置',            requiresAuth: true,            permissions: ['admin:system:config']          }        },
+    // 路由管理
+    {
+      path: 'routes',
+      name: 'Routes',
+      component: () => import('@/views/admin/Routes.vue'),
+      meta: {
+        title: '路由管理',
+        requiresAuth: true,
+        permissions: ['admin:routes:view']
+      }
+    },
+    // 搜索管理
+    {
+      path: 'search-management',
+      name: 'SearchManagement',
+      component: () => import('@/views/admin/SearchManagement.vue'),
+      meta: {
+        title: '搜索管理',
+        requiresAuth: true,
+        permissions: ['admin:search:manage']
+      }
+    },
+    
+    // 敏感词管理
+    {
+      path: 'sensitive-words',
+      name: 'SensitiveWords',
+      component: () => import('@/views/admin/SensitiveWords.vue'),
+      meta: {
+        title: '敏感词管理',
+        requiresAuth: true,
+        permissions: ['admin:system:config']
+      }
     }
   ]
 }
@@ -163,7 +246,8 @@ router.beforeEach(async (to, from, next) => {
               case 'Categories': return () => import('@/views/admin/CategoryList.vue');
               case 'Feedbacks': return () => import('@/views/admin/FeedbackList.vue');
               case 'Logs': return () => import('@/views/admin/Dashboard.vue'); // 暂无Logs组件
-              case 'System': return () => import('@/views/admin/Config.vue');
+              case 'System': return () => import('@/views/admin/config/SystemConfig.vue');
+              case 'Roles': return () => import('@/views/admin/RoleList.vue');
               default: return () => import('@/views/admin/Dashboard.vue');
             }
           };

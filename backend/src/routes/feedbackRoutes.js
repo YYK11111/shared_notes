@@ -5,6 +5,8 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 const { logAdminAction } = require('../utils/logger');
 const { successResponse: formatSuccess, errorResponse: formatError, paginatedResponse } = require('../utils/responseFormatter');
 
+// 注意：为了保持一致性，此文件中所有的pool.execute都已改为pool.query
+
 // 获取反馈列表（后台管理）
 router.get('/', authMiddleware, async (req, res) => {
   try {
@@ -37,7 +39,7 @@ router.get('/', authMiddleware, async (req, res) => {
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(parseInt(pageSize), parseInt(offset));
     
-    const [feedback] = await pool.execute(query, params);
+    const [feedback] = await pool.query(query, params);
     
     // 获取总条数
     let countQuery = 'SELECT COUNT(*) as total FROM feedback';
@@ -47,7 +49,7 @@ router.get('/', authMiddleware, async (req, res) => {
       countQuery += ' WHERE ' + whereClause.join(' AND ');
     }
     
-    const [countResult] = await pool.execute(countQuery, countParams);
+    const [countResult] = await pool.query(countQuery, countParams);
     const total = countResult[0].total;
     
     return res.json(paginatedResponse(feedback, total, page, pageSize, '获取反馈列表成功'));
@@ -63,7 +65,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     
-    const [feedback] = await pool.execute('SELECT * FROM feedback WHERE id = ?', [id]);
+    const [feedback] = await pool.query('SELECT * FROM feedback WHERE id = ?', [id]);
     
     if (feedback.length === 0) {
       return res.status(404).json(formatError('反馈不存在', 404));
@@ -93,7 +95,7 @@ router.post('/submit', async (req, res) => {
     }
     
     // 插入反馈
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       'INSERT INTO feedback (type, content, contact) VALUES (?, ?, ?)',
       [type, content, contact || '']
     );
@@ -118,14 +120,14 @@ router.put('/:id/status', authMiddleware, async (req, res) => {
     }
     
     // 检查反馈是否存在
-    const [feedback] = await pool.execute('SELECT * FROM feedback WHERE id = ?', [id]);
+    const [feedback] = await pool.query('SELECT * FROM feedback WHERE id = ?', [id]);
     
     if (feedback.length === 0) {
       return res.status(404).json(formatError('反馈不存在', 404));
     }
     
     // 更新状态
-    await pool.execute('UPDATE feedback SET status = ? WHERE id = ?', [status, id]);
+    await pool.query('UPDATE feedback SET status = ? WHERE id = ?', [status, id]);
     
     // 记录操作日志
     const decoded = req.user;
@@ -151,14 +153,14 @@ router.put('/:id/reply', authMiddleware, async (req, res) => {
     }
     
     // 检查反馈是否存在
-    const [feedback] = await pool.execute('SELECT * FROM feedback WHERE id = ?', [id]);
+    const [feedback] = await pool.query('SELECT * FROM feedback WHERE id = ?', [id]);
     
     if (feedback.length === 0) {
       return res.status(404).json(formatError('反馈不存在', 404));
     }
     
     // 更新回复和状态
-    await pool.execute(
+    await pool.query(
       'UPDATE feedback SET reply = ?, status = ? WHERE id = ?',
       [reply, status || '已处理', id]
     );
@@ -188,14 +190,14 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     
     // 检查反馈是否存在
-    const [feedback] = await pool.execute('SELECT * FROM feedback WHERE id = ?', [id]);
+    const [feedback] = await pool.query('SELECT * FROM feedback WHERE id = ?', [id]);
     
     if (feedback.length === 0) {
       return res.status(404).json(formatError('反馈不存在', 404));
     }
     
     // 删除反馈
-    await pool.execute('DELETE FROM feedback WHERE id = ?', [id]);
+    await pool.query('DELETE FROM feedback WHERE id = ?', [id]);
     
     // 记录操作日志
     const decoded = req.user;
@@ -212,11 +214,11 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 // 获取反馈统计数据（后台管理）
 router.get('/stats', authMiddleware, async (req, res) => {
   try {
-    const [statusStats] = await pool.execute(
+    const [statusStats] = await pool.query(
       'SELECT status, COUNT(*) as count FROM feedback GROUP BY status'
     );
     
-    const [typeStats] = await pool.execute(
+    const [typeStats] = await pool.query(
       'SELECT type, COUNT(*) as count FROM feedback GROUP BY type'
     );
     
@@ -227,7 +229,7 @@ router.get('/stats', authMiddleware, async (req, res) => {
     
   } catch (error) {
     console.error('获取反馈统计数据失败:', error);
-    return formatError(res, '获取统计数据失败，请稍后重试', 500);
+    return res.status(500).json(formatError('获取统计数据失败，请稍后重试', 500));
   }
 });
 

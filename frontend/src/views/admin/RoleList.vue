@@ -127,7 +127,11 @@ const fetchRoles = async () => {
     }
     
     const response = await getRoleList(params)
-    rolesData.value = response.data?.items || []
+    // 使用后端返回的status值（0或1），转换为前端显示的'enabled'或'disabled'
+    rolesData.value = (response.data?.list || []).map(role => ({
+      ...role,
+      status: role.status === 1 ? 'enabled' : 'disabled' // 将数字状态转换为字符串表示
+    }))
     totalCount.value = response.data?.total || 0
   } catch (error) {
     ElMessage.error('获取角色列表失败：' + (error.message || '未知错误'))
@@ -306,7 +310,9 @@ const toggleRoleStatus = async (id, currentStatus) => {
       }
     )
     
-    await updateRoleStatus(id, { status: newStatus })
+    // 将前端的字符串状态转换为后端需要的数字状态
+    const statusValue = newStatus === 'enabled' ? 1 : 0
+    await updateRoleStatus(id, { status: statusValue })
     ElMessage.success(`角色${actionText}成功`)
     fetchRoles()
   } catch (error) {
@@ -331,8 +337,6 @@ onMounted(() => {
 <style scoped>
 .role-list-page {
   padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
 }
 
 .card-header {

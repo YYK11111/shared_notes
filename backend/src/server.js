@@ -49,6 +49,8 @@ async function initServer() {
     const userRoutes = require('./routes/userRoutes');
     const searchRoutes = require('./routes/searchRoutes');
     const routePermissionRoutes = require('./routes/routePermissionRoutes');
+    const sensitiveWordRoutes = require('./routes/sensitiveWordRoutes');
+    const fileRoutes = require('./routes/fileRoutes');
 
     // 使用路由
     app.use('/api/auth', authRoutes);
@@ -61,6 +63,8 @@ async function initServer() {
     app.use('/api/user', userRoutes);
     app.use('/api/search', searchRoutes);
     app.use('/api/route-permissions', routePermissionRoutes);
+    app.use('/api/sensitive-words', sensitiveWordRoutes);
+    app.use('/api/file', fileRoutes);
 
     // 健康检查接口
     app.get('/api/health', (req, res) => {
@@ -82,8 +86,8 @@ async function initServer() {
       });
     });
 
-    // 启动服务器
-    const PORT = process.env.PORT || 3000;
+    // 启动服务器 - 明确使用端口3000
+    const PORT = 3000;
     const server = app.listen(PORT, () => {
       console.log(`服务器运行在 http://${process.env.HOST || 'localhost'}:${PORT}`);
     });

@@ -1,5 +1,6 @@
-const mysql = require('mysql2/promise');
+
 const dotenv = require('dotenv');
+const mysql = require('mysql2/promise');
 // 移除对logger的依赖，打破循环引用
 // const logger = require('../utils/logger');
 
@@ -37,7 +38,17 @@ async function query(sql, params = []) {
   try {
     const connection = await pool.getConnection();
     try {
-      const [results] = await connection.execute(sql, params);
+      // 检查是否是事务相关命令，这些命令不支持prepared statement协议
+      const isTransactionCommand = 
+        sql.trim().toUpperCase().startsWith('START TRANSACTION') ||
+        sql.trim().toUpperCase().startsWith('COMMIT') ||
+        sql.trim().toUpperCase().startsWith('ROLLBACK');
+        
+      // 对于事务命令使用query方法，其他也统一使用query方法来避免参数问题
+      const [results] = isTransactionCommand 
+        ? await connection.query(sql)
+        : await connection.query(sql, params);
+        
       return results;
     } finally {
       connection.release();

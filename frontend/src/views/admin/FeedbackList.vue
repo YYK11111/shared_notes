@@ -375,8 +375,6 @@ onMounted(() => {
 <style scoped>
 .feedback-list-page {
   padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
 }
 
 .card-header {

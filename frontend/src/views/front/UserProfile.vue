@@ -323,7 +323,7 @@ import { useRouter, useRoute } from 'vue-router'
 import dayjs from 'dayjs'
 import { Plus, Star, View, ChatDotRound, Delete } from '@element-plus/icons-vue'
 import { getUserProfile, getUserNotes, getUserCollections, getUserLikes, updateUserProfile, followUser, unfollowUser } from '@/api/user'
-import { uploadImage } from '@/api/upload'
+import { uploadAvatar, uploadCover } from '@/api/file'
 import { marked } from 'marked'
 
 const router = useRouter()
@@ -587,8 +587,9 @@ const handleCoverBeforeUpload = (file) => {
 
 // 处理头像上传成功
 const handleAvatarUploadSuccess = (response) => {
-  if (response.code === 200 && response.data?.url) {
-    settingsForm.avatar = response.data.url
+  if (response.code === 200 && response.data?.fileId) {
+    // 使用fileId构建头像URL
+    settingsForm.avatar = `/file/get/${response.data.fileId}`
     ElMessage.success('头像上传成功')
   } else {
     ElMessage.error('头像上传失败：' + (response.message || '未知错误'))
@@ -597,8 +598,9 @@ const handleAvatarUploadSuccess = (response) => {
 
 // 处理封面上传成功
 const handleCoverUploadSuccess = (response) => {
-  if (response.code === 200 && response.data?.url) {
-    settingsForm.cover_image = response.data.url
+  if (response.code === 200 && response.data?.fileId) {
+    // 使用fileId构建封面URL
+    settingsForm.cover_image = `/file/get/${response.data.fileId}`
     ElMessage.success('封面上传成功')
   } else {
     ElMessage.error('封面上传失败：' + (response.message || '未知错误'))

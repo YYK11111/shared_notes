@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate": "node src/database/migrate.js",
-    "backup": "node -e \"require('./src/utils/dbBackup').backupDatabase()\""
+    "migrate": "node src/database/migrate.js"
   },
   "keywords": [
     "notes",
@@ -25,10 +24,12 @@
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "marked": "^16.2.1",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.6.5",
     "nodemailer": "^6.9.7",
     "redis": "^4.6.12",
+    "request": "^2.88.2",
     "sharp": "^0.34.3",
     "svg-captcha": "^1.4.0",
     "xss": "^1.0.14"

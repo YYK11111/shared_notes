@@ -55,6 +55,26 @@
           <el-option label="已发布" value="1" />
           <el-option label="草稿" value="0" />
         </el-select>
+        <el-select v-model="isTopFilter" placeholder="置顶状态" class="filter-select">
+          <el-option label="全部" value="" />
+          <el-option label="已置顶" value="1" />
+          <el-option label="未置顶" value="0" />
+        </el-select>
+        <el-select v-model="isHomeRecommendFilter" placeholder="首页推荐" class="filter-select">
+          <el-option label="全部" value="" />
+          <el-option label="是" value="1" />
+          <el-option label="否" value="0" />
+        </el-select>
+        <el-select v-model="isWeekSelectionFilter" placeholder="本周精选" class="filter-select">
+          <el-option label="全部" value="" />
+          <el-option label="是" value="1" />
+          <el-option label="否" value="0" />
+        </el-select>
+        <el-select v-model="isMonthRecommendFilter" placeholder="本月推荐" class="filter-select">
+          <el-option label="全部" value="" />
+          <el-option label="是" value="1" />
+          <el-option label="否" value="0" />
+        </el-select>
         <el-date-picker v-model="dateRange" type="daterange" range-separator="至" start-placeholder="开始日期"
           end-placeholder="结束日期" class="date-filter" @change="handleDateFilter" />
         <el-button type="primary" @click="handleSearch" class="search-button">搜索</el-button>
@@ -71,12 +91,11 @@
             <span class="note-title" @click="viewNoteDetail(row.id)">{{ row.title }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="categories" label="分类" width="120">
+        <el-table-column label="分类" width="120">
           <template #default="{ row }">
-            <span>{{ row.categories || '未分类' }}</span>
+            <span>{{ getCategoryNames(row.categories) || '未分类' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="author" label="作者" width="120" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
@@ -92,8 +111,37 @@
             </el-icon>
           </template>
         </el-table-column>
-        <el-table-column prop="views" label="浏览量" width="100" sortable />
-        <el-table-column prop="likes" label="点赞数" width="100" sortable />
+        <el-table-column prop="top_expire_time" label="置顶过期时间" width="180" align="center">
+          <template #default="{ row }">
+            <span v-if="row.top_expire_time">
+              {{ formatDate(row.top_expire_time) }}
+            </span>
+            <span v-else-if="row.is_top === 1" style="color: #67c23a;">
+              永久置顶
+            </span>
+            <span v-else style="color: #909399;">
+              - 
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="is_home_recommend" label="首页推荐" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_home_recommend === 1" type="success">是</el-tag>
+            <el-tag v-else type="info">否</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="is_week_selection" label="本周精选" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_week_selection === 1" type="primary">是</el-tag>
+            <el-tag v-else type="info">否</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="is_month_recommend" label="本月推荐" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_month_recommend === 1" type="warning">是</el-tag>
+            <el-tag v-else type="info">否</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" sortable>
           <template #default="{ row }">
             <span>{{ formatDate(row.created_at) }}</span>
@@ -104,13 +152,14 @@
             <span>{{ formatDate(row.updated_at) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="480" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEditNote(row.id)">编辑</el-button>
             <el-button link type="danger" @click="handleDeleteNote(row.id)">删除</el-button>
             <el-button link :type="row.is_top === 1 ? 'info' : 'warning'" @click="handleToggleTop(row.id, row.is_top === 1 ? 0 : 1)">{{ row.is_top === 1 ? '取消置顶' : '置顶' }}</el-button>
-            <el-button link v-if="row.status === 'reviewing'" @click="handleApproveNote(row.id)">通过</el-button>
-            <el-button link v-if="row.status === 'reviewing'" @click="handleRejectNote(row.id)">拒绝</el-button>
+            <el-button link :type="row.is_home_recommend === 1 ? 'info' : 'success'" @click="handleToggleHomeRecommend(row.id, row.is_home_recommend === 1 ? 0 : 1)">{{ row.is_home_recommend === 1 ? '取消推荐' : '首页推荐' }}</el-button>
+            <el-button link :type="row.is_week_selection === 1 ? 'info' : 'primary'" @click="handleToggleWeekSelection(row.id, row.is_week_selection === 1 ? 0 : 1)">{{ row.is_week_selection === 1 ? '取消精选' : '本周精选' }}</el-button>
+            <el-button link :type="row.is_month_recommend === 1 ? 'info' : 'warning'" @click="handleToggleMonthRecommend(row.id, row.is_month_recommend === 1 ? 0 : 1)">{{ row.is_month_recommend === 1 ? '取消推荐' : '本月推荐' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -132,7 +181,7 @@ import dayjs from 'dayjs'
 import { Plus, Delete, Search, Star, StarFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { getNoteList, deleteNote, approveNote, rejectNote, toggleNoteTop, batchUpdateNoteStatus } from '@/api/note'
+import { getNoteList, deleteNote, approveNote, rejectNote, toggleNoteTop, batchUpdateNoteStatus, toggleNoteHomeRecommend, toggleNoteWeekSelection, toggleNoteMonthRecommend } from '@/api/note'
 import { getCategoryList } from '@/api/category'
 
 const router = useRouter()
@@ -151,6 +200,10 @@ const searchKeyword = ref('')
 const categoryFilter = ref('')
 const selectedCategoryId = ref('') // 存储最终选择的分类ID
 const statusFilter = ref('')
+const isTopFilter = ref('')
+const isHomeRecommendFilter = ref('')
+const isWeekSelectionFilter = ref('')
+const isMonthRecommendFilter = ref('')
 const dateRange = ref([])
 
 // 获取笔记列表
@@ -164,6 +217,10 @@ const fetchNotes = async () => {
       keyword: searchKeyword.value,
       category_id: selectedCategoryId.value || undefined,
       status: statusFilter.value || undefined,
+      isTop: isTopFilter.value || undefined,
+      isHomeRecommend: isHomeRecommendFilter.value || undefined,
+      isWeekSelection: isWeekSelectionFilter.value || undefined,
+      isMonthRecommend: isMonthRecommendFilter.value || undefined,
       start_date: dateRange.value[0] ? dayjs(dateRange.value[0]).format('YYYY-MM-DD') : undefined,
       end_date: dateRange.value[1] ? dayjs(dateRange.value[1]).format('YYYY-MM-DD') : undefined
     }
@@ -204,6 +261,10 @@ const resetFilters = () => {
   categoryFilter.value = ''
   selectedCategoryId.value = ''
   statusFilter.value = ''
+  isTopFilter.value = ''
+  isHomeRecommendFilter.value = ''
+  isWeekSelectionFilter.value = ''
+  isMonthRecommendFilter.value = ''
   dateRange.value = []
   currentPage.value = 1
   fetchNotes()
@@ -256,7 +317,7 @@ const handleEditNote = (id) => {
 
 // 查看笔记详情
 const viewNoteDetail = (id) => {
-  router.push('/notes/' + id)
+  router.push('/admin/notes/preview/' + id)
 }
 
 // 删除笔记
@@ -370,23 +431,130 @@ const handleRejectNote = async (id) => {
 const handleToggleTop = async (id, top) => {
   try {
     const actionText = top === 1 ? '置顶' : '取消置顶'
-    await ElMessageBox.confirm(
-      `确定要${actionText}这条笔记吗？`,
-      `确认${actionText}`,
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: top === 1 ? 'warning' : 'success'
-      }
-    )
-
-    await toggleNoteTop(id, top)
+    
+    if (top === 1) {
+      // 置顶时显示时间选择器
+      const { value: expireTime } = await ElMessageBox.prompt(
+        `请选择置顶过期时间：`,
+        `确认${actionText}`,
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputPlaceholder: '不设置则永久置顶',
+          inputType: 'datetime-local'
+        }
+      )
+      
+      // 调用置顶接口并传递过期时间
+      await toggleNoteTop(id, top, expireTime)
+    } else {
+      // 取消置顶时直接确认
+      await ElMessageBox.confirm(
+        `确定要${actionText}这条笔记吗？`,
+        `确认${actionText}`,
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'success'
+        }
+      )
+      
+      await toggleNoteTop(id, top)
+    }
+    
     ElMessage.success(`笔记${actionText}成功`)
     fetchNotes()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(`${actionText}操作失败：` + (error.message || '未知错误'))
       console.error(`${actionText}笔记失败:`, error)
+    }
+  }
+}
+
+// 切换笔记首页推荐状态
+const handleToggleHomeRecommend = async (id, recommend) => {
+  try {
+    const actionText = recommend === 1 ? '设置为首页推荐' : '取消首页推荐'
+    
+    await ElMessageBox.confirm(
+      `确定要${actionText}这条笔记吗？`,
+      `确认${actionText}`,
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: recommend === 1 ? 'success' : 'warning'
+      }
+    )
+    
+    // 使用API函数更新首页推荐状态
+    await toggleNoteHomeRecommend(id, recommend)
+
+    ElMessage.success(`笔记${actionText}成功`)
+    fetchNotes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      const errorActionText = recommend === 1 ? '设置为首页推荐' : '取消首页推荐'
+      ElMessage.error(`${errorActionText}操作失败：` + (error.message || '未知错误'))
+      console.error(`${errorActionText}笔记失败:`, error)
+    }
+  }
+}
+
+// 切换笔记本周精选状态
+const handleToggleWeekSelection = async (id, selection) => {
+  try {
+    const actionText = selection === 1 ? '设置为本周精选' : '取消本周精选'
+    
+    await ElMessageBox.confirm(
+      `确定要${actionText}这条笔记吗？`,
+      '确认操作',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'primary'
+      }
+    )
+
+    // 使用API函数更新本周精选状态
+    await toggleNoteWeekSelection(id, selection)
+
+    ElMessage.success(`笔记${actionText}成功`)
+    fetchNotes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      const errorActionText = selection === 1 ? '设置为本周精选' : '取消本周精选'
+      ElMessage.error(`${errorActionText}操作失败：` + (error.message || '未知错误'))
+      console.error(`${errorActionText}笔记失败:`, error)
+    }
+  }
+}
+
+// 切换笔记本月推荐状态
+const handleToggleMonthRecommend = async (id, recommend) => {
+  try {
+    const actionText = recommend === 1 ? '设置为本月推荐' : '取消本月推荐'
+    
+    await ElMessageBox.confirm(
+      `确定要${actionText}这条笔记吗？`,
+      '确认操作',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    // 使用API函数更新本月推荐状态
+    await toggleNoteMonthRecommend(id, recommend)
+
+    ElMessage.success(`笔记${actionText}成功`)
+    fetchNotes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      const errorActionText = recommend === 1 ? '设置为本月推荐' : '取消本月推荐'
+      ElMessage.error(`${errorActionText}操作失败：` + (error.message || '未知错误'))
+      console.error(`${errorActionText}笔记失败:`, error)
     }
   }
 }
@@ -429,34 +597,14 @@ const formatDate = (dateString) => {
 }
 
 // 获取分类名称（支持层级显示）
-const getCategoryName = (categoryId) => {
-  // 如果没有分类ID或分类列表为空，返回未分类
-  if (!categoryId || !categories.value.length) {
+const getCategoryNames = (categoryArray) => {
+  // 如果没有分类数组或分类数组为空，返回未分类
+  if (!categoryArray || !Array.isArray(categoryArray) || categoryArray.length === 0) {
     return '未分类'
   }
   
-  // 确保categoryId是字符串类型以便比较
-  const targetId = String(categoryId)
-  
-  // 递归查找分类
-  const findCategoryRecursive = (cats, id) => {
-    for (const cat of cats) {
-      if (String(cat.id) === id) {
-        return cat
-      }
-      // 如果有子分类，递归查找
-      if (cat.children && cat.children.length > 0) {
-        const found = findCategoryRecursive(cat.children, id)
-        if (found) {
-          return found
-        }
-      }
-    }
-    return null
-  }
-  
-  const category = findCategoryRecursive(categories.value, targetId)
-  return category ? category.name : '未分类'
+  // 提取分类名称并以逗号分隔
+  return categoryArray.map(cat => cat.name).join(', ')
 }
 
 // 获取状态文本

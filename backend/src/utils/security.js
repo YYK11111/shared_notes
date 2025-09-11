@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const svgCaptcha = require('svg-captcha');
 const { config } = require('dotenv');
 const { errorResponse, unauthorizedResponse, forbiddenResponse } = require('./responseFormatter');
+const { query } = require('../../database/dbConfig');
 
 config();
 
@@ -15,8 +16,75 @@ const captchaStore = new Map();
 // 验证码有效期（秒）
 const CAPTCHA_EXPIRATION = 300;
 
-// 敏感词列表
-const sensitiveWords = process.env.SENSITIVE_WORDS ? process.env.SENSITIVE_WORDS.split(',') : [];
+// 敏感词列表 - 将在首次使用时从数据库加载
+let sensitiveWords = [];
+
+// 上一次加载时间
+let lastLoadedTime = 0;
+
+// 加载敏感词列表
+const loadSensitiveWords = async () => {
+  const now = Date.now();
+  // 每5分钟重新加载一次
+  if (now - lastLoadedTime > 5 * 60 * 1000 || sensitiveWords.length === 0) {
+    try {
+      const words = await query('SELECT id, word, created_at FROM sensitive_words');
+      sensitiveWords = words.map(item => ({
+        id: item.id,
+        word: item.word,
+        created_at: item.created_at
+      })).filter(item => item.word && item.word.trim());
+      lastLoadedTime = now;
+    } catch (error) {
+      console.error('加载敏感词失败:', error);
+    }
+  }
+  return sensitiveWords;
+};
+
+// 立即预加载敏感词
+loadSensitiveWords().catch(error => {
+  console.error('预加载敏感词失败:', error);
+});
+
+// 获取所有敏感词
+const getAllSensitiveWords = async () => {
+  return await loadSensitiveWords();
+};
+
+// 添加敏感词
+const addSensitiveWord = async (word) => {
+  if (!word || typeof word !== 'string' || word.trim() === '') {
+    throw new Error('敏感词不能为空');
+  }
+  
+  try {
+      await query('INSERT IGNORE INTO sensitive_words (word, created_at) VALUES (?, NOW())', [word.trim()]);
+    // 清除缓存，下次请求时重新加载
+    sensitiveWords = [];
+    return true;
+  } catch (error) {
+    console.error('添加敏感词失败:', error);
+    throw error;
+  }
+};
+
+// 移除敏感词
+const removeSensitiveWord = async (word) => {
+  if (!word || typeof word !== 'string' || word.trim() === '') {
+    throw new Error('敏感词不能为空');
+  }
+  
+  try {
+      const result = await query('DELETE FROM sensitive_words WHERE word = ?', [word.trim()]);
+    // 清除缓存，下次请求时重新加载
+    sensitiveWords = [];
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('移除敏感词失败:', error);
+    throw error;
+  }
+};
 
 // 加密配置
 const encryptionConfig = {
@@ -337,10 +405,13 @@ const validatePasswordStrength = (password) => {
 };
 
 // 过滤敏感词
-const filterSensitiveWords = (text, replacement = '*') => {
+const filterSensitiveWords = async (text, replacement = '*') => {
   if (!text || typeof text !== 'string') {
     return text;
   }
+  
+  // 确保加载敏感词
+  await loadSensitiveWords();
   
   let filteredText = text;
   
@@ -356,10 +427,13 @@ const filterSensitiveWords = (text, replacement = '*') => {
 };
 
 // 检查是否包含敏感词
-const containsSensitiveWords = (text) => {
+const containsSensitiveWords = async (text) => {
   if (!text || typeof text !== 'string') {
     return false;
   }
+  
+  // 确保加载敏感词
+  await loadSensitiveWords();
   
   return sensitiveWords.some(word => {
     if (word && word.trim()) {
@@ -368,6 +442,38 @@ const containsSensitiveWords = (text) => {
     }
     return false;
   });
+};
+
+// 导出敏感词管理函数
+exports.addSensitiveWord = async (word) => {
+  try {
+      await query('INSERT IGNORE INTO sensitive_words (word) VALUES (?)', [word.trim()]);
+    // 重置缓存
+    sensitiveWords = [];
+    lastLoadedTime = 0;
+    return true;
+  } catch (error) {
+    console.error('添加敏感词失败:', error);
+    throw error;
+  }
+};
+
+exports.removeSensitiveWord = async (word) => {
+  try {
+      const result = await query('DELETE FROM sensitive_words WHERE word = ?', [word]);
+    // 重置缓存
+    sensitiveWords = [];
+    lastLoadedTime = 0;
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('删除敏感词失败:', error);
+    throw error;
+  }
+};
+
+exports.getAllSensitiveWords = async () => {
+  await loadSensitiveWords();
+  return [...sensitiveWords];
 };
 
 // 清理XSS
@@ -576,5 +682,8 @@ module.exports = {
   rateLimit,
   antiCrawler,
   setSecurityHeaders,
-  securitySettings
+  securitySettings,
+  getAllSensitiveWords,
+  addSensitiveWord,
+  removeSensitiveWord
 };

@@ -1,43 +1,322 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../database/db');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { logAdminAction } = require('../utils/logger');
 const { successResponse: formatSuccess, errorResponse: formatError } = require('../utils/responseFormatter');
+const xss = require('xss');
+const dbConfig = require('../../database/dbConfig');
 
-// 配置文件上传
-const uploadDir = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// 使用marked库处理Markdown转HTML，支持代码高亮
+const { marked } = require('marked');
+const crypto = require('crypto');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+// 配置marked，启用更多扩展语法支持
+marked.setOptions({
+  breaks: true, // 转换换行符为<br>
+  gfm: true, // 启用GitHub风格的Markdown
+  smartLists: true,
+  smartypants: true,
+  langPrefix: 'language-', // 为代码块添加语言前缀，便于前端高亮
+  tables: true, // 启用表格支持
+  taskLists: true, // 启用任务列表支持
+  mangle: false, // 不混淆电子邮件地址
+  headerIds: true, // 为标题添加id属性
+});
+
+// 创建Markdown转换缓存
+const markdownCache = new Map();
+const CACHE_EXPIRY = 3600000; // 缓存过期时间：1小时
+const MAX_CACHE_SIZE = 100; // 最大缓存条目数
+const LONG_NOTE_THRESHOLD = 10000; // 长笔记阈值：10000字符
+
+// 清理过期缓存的函数
+const cleanupCache = () => {
+  const now = Date.now();
+  let size = markdownCache.size;
+  
+  // 按插入顺序遍历缓存条目
+  for (const [key, { timestamp }] of markdownCache.entries()) {
+    // 删除过期条目
+    if (now - timestamp > CACHE_EXPIRY) {
+      markdownCache.delete(key);
+    }
+    // 如果缓存大小仍然超过限制，删除最早的条目
+    else if (size > MAX_CACHE_SIZE) {
+      markdownCache.delete(key);
+      size--;
+    } else {
+      break;
+    }
+  }
+};
+
+// 定期清理缓存（每10分钟）
+setInterval(cleanupCache, 10 * 60 * 1000);
+
+// 生成缓存键
+const generateCacheKey = (content) => {
+  return crypto.createHash('md5').update(content).digest('hex');
+};
+
+// 利用marked库的Markdown转HTML函数 - 带缓存
+const markdownToHtml = (markdown) => {
+  if (!markdown) return '';
+  
+  // 生成缓存键
+  const cacheKey = generateCacheKey(markdown);
+  
+  // 检查缓存
+  const cached = markdownCache.get(cacheKey);
+  if (cached) {
+    // 更新缓存时间戳
+    markdownCache.set(cacheKey, {
+      html: cached.html,
+      timestamp: Date.now()
+    });
+    return cached.html;
+  }
+  
+  // 使用xss库净化HTML，防止XSS攻击
+  const html = xss(marked.parse(markdown));
+  
+  // 存储到缓存
+  markdownCache.set(cacheKey, {
+    html,
+    timestamp: Date.now()
+  });
+  
+  // 如果缓存过大，清理过期缓存
+  if (markdownCache.size > MAX_CACHE_SIZE) {
+    cleanupCache();
+  }
+  
+  return html;
+};
+
+// 异步处理长笔记的Markdown转换
+const asyncMarkdownToHtml = (markdown) => {
+  return new Promise((resolve, reject) => {
+    try {
+      // 使用setImmediate将处理放入下一个事件循环
+      setImmediate(() => {
+        try {
+          const html = xss(marked.parse(markdown));
+          resolve(html);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+// 获取笔记的HTML预览（后台使用）
+router.get('/:id/preview', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // 查询笔记基本信息
+    const notes = await dbConfig.query(
+      'SELECT id, title, content, status, cover_image, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend, created_at, updated_at FROM notes WHERE id = ?',
+      [id]
+    );
+    
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
+    }
+    
+    // 查询笔记所属分类
+    const categories = await dbConfig.query(
+      'SELECT c.id, c.name FROM note_categories nc JOIN categories c ON nc.category_id = c.id WHERE nc.note_id = ?',
+      [id]
+    );
+    
+    // 处理笔记内容
+    const note = notes[0];
+    note.categories = categories;
+    
+    // 根据笔记长度选择处理方式
+    if (note.content && note.content.length > LONG_NOTE_THRESHOLD) {
+      // 长笔记使用异步处理，先返回基本信息
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write(JSON.stringify({
+        code: 200,
+        message: '正在处理长笔记，请等待...',
+        data: {
+          basicInfo: {
+            id: note.id,
+            title: note.title,
+            status: note.status,
+            cover_image: note.cover_image,
+            is_top: note.is_top,
+            top_expire_time: note.top_expire_time,
+            is_home_recommend: note.is_home_recommend,
+            is_week_selection: note.is_week_selection,
+            is_month_recommend: note.is_month_recommend,
+            created_at: note.created_at,
+            updated_at: note.updated_at,
+            categories: note.categories
+          },
+          isLongNote: true
+        }
+      }));
+      res.end();
+      
+      try {
+        // 异步处理HTML转换
+        const htmlContent = await asyncMarkdownToHtml(note.content);
+        // 可以在这里添加逻辑，比如将转换后的HTML缓存到数据库
+        console.log(`长笔记${id}转换完成`);
+      } catch (error) {
+        console.error(`长笔记${id}转换失败:`, error);
+      }
+    } else {
+      // 短笔记使用同步缓存转换
+      note.html_content = markdownToHtml(note.content);
+      note.isLongNote = false;
+      
+      return res.json(formatSuccess(note, '获取笔记预览成功'));
+    }
+  } catch (error) {
+    console.error('获取笔记预览失败:', error);
+    return res.status(500).json(formatError('获取笔记预览失败，请稍后重试', 500));
   }
 });
 
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) // 5MB
-  },
-  fileFilter: (req, file, cb) => {
-    const fileTypes = /jpeg|jpg|png|gif/;
-    const mimetype = fileTypes.test(file.mimetype);
-    const extname = fileTypes.test(path.extname(file.originalname).toLowerCase());
+// 获取笔记详情
+// 添加缺少的路由映射，兼容前端直接使用/api/notes/:id的请求
+router.get('/:id', authMiddleware, async (req, res) => {
+  // 转发请求到现有的/detail接口
+  return res.redirect(307, `/api/notes/${req.params.id}/detail`);
+});
+
+// 获取笔记详情接口
+router.get('/:id/detail', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
     
-    if (mimetype && extname) {
-      return cb(null, true);
+    // 查询笔记基本信息
+    const notes = await dbConfig.query(
+      'SELECT id, title, content, status, cover_image, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend, created_at, updated_at FROM notes WHERE id = ?',
+      [id]
+    );
+    
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
     }
-    cb(new Error('只支持JPG、PNG、GIF格式的图片文件!'));
+    
+    // 查询笔记所属分类
+    const categories = await dbConfig.query(
+      'SELECT c.id, c.name FROM note_categories nc JOIN categories c ON nc.category_id = c.id WHERE nc.note_id = ?',
+      [id]
+    );
+    
+    // 处理笔记内容
+    const note = notes[0];
+    note.categories = categories;
+    note.tags = []; // 不查询标签表，直接返回空数组
+    
+    return res.json(formatSuccess(note, '获取笔记详情成功'));
+  } catch (error) {
+    console.error('获取笔记详情失败:', error);
+    return res.status(500).json(formatError('获取笔记详情失败，请稍后重试', 500));
+  }
+});
+
+// 切换笔记首页推荐状态
+router.put('/:id/home-recommend', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_home_recommend: isHomeRecommend } = req.body;
+    
+    // 检查参数
+    if (isHomeRecommend === undefined) {
+      return res.status(400).json(formatError('请指定首页推荐状态', 400));
+    }
+    
+    // 验证笔记是否存在
+    const [notes] = await dbConfig.query('SELECT id FROM notes WHERE id = ?', [id]);
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
+    }
+    
+    // 更新首页推荐状态
+    await dbConfig.query('UPDATE notes SET is_home_recommend = ? WHERE id = ?', [isHomeRecommend, id]);
+    
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, '切换笔记首页推荐状态', '笔记', id, { isHomeRecommend });
+    
+    return res.json(formatSuccess(null, isHomeRecommend ? '设置首页推荐成功' : '取消首页推荐成功'));
+  } catch (error) {
+    console.error('切换笔记首页推荐状态失败:', error);
+    return res.status(500).json(formatError('切换首页推荐状态失败，请稍后重试', 500));
+  }
+});
+
+// 切换笔记本周精选状态
+router.put('/:id/week-selection', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_week_selection: isWeekSelection } = req.body;
+    
+    // 检查参数
+    if (isWeekSelection === undefined) {
+      return res.status(400).json(formatError('请指定本周精选状态', 400));
+    }
+    
+    // 验证笔记是否存在
+    const [notes] = await dbConfig.query('SELECT id FROM notes WHERE id = ?', [id]);
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
+    }
+    
+    // 更新本周精选状态
+    await dbConfig.query('UPDATE notes SET is_week_selection = ? WHERE id = ?', [isWeekSelection, id]);
+    
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, '切换笔记本周精选状态', '笔记', id, { isWeekSelection });
+    
+    return res.json(formatSuccess(null, isWeekSelection ? '设置本周精选成功' : '取消本周精选成功'));
+  } catch (error) {
+    console.error('切换笔记本周精选状态失败:', error);
+    return res.status(500).json(formatError('切换本周精选状态失败，请稍后重试', 500));
+  }
+});
+
+// 切换笔记本月推荐状态
+router.put('/:id/month-recommend', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_month_recommend: isMonthRecommend } = req.body;
+    
+    // 检查参数
+    if (isMonthRecommend === undefined) {
+      return res.status(400).json(formatError('请指定本月推荐状态', 400));
+    }
+    
+    // 验证笔记是否存在
+    const [notes] = await dbConfig.query('SELECT id FROM notes WHERE id = ?', [id]);
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
+    }
+    
+    // 更新本月推荐状态
+    await dbConfig.query('UPDATE notes SET is_month_recommend = ? WHERE id = ?', [isMonthRecommend, id]);
+    
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, '切换笔记本月推荐状态', '笔记', id, { isMonthRecommend });
+    
+    return res.json(formatSuccess(null, isMonthRecommend ? '设置本月推荐成功' : '取消本月推荐成功'));
+  } catch (error) {
+    console.error('切换笔记本月推荐状态失败:', error);
+    return res.status(500).json(formatError('切换本月推荐状态失败，请稍后重试', 500));
   }
 });
 
@@ -45,44 +324,82 @@ const upload = multer({
 router.get('/', authMiddleware, async (req, res) => {
   try {
     console.log('请求参数:', req.query);
-    // 确保参数是有效的数字
+    
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 10;
     const offset = (page - 1) * pageSize;
-    const { keyword, categoryId, status, startDate, endDate, parentCategoryId } = req.query;
     
-    // 兼容前端传递的category_id参数
+    const { keyword, categoryId, status, startDate, endDate, parentCategoryId, isHomeRecommend, isTop, isWeekSelection, isMonthRecommend } = req.query;
     const actualCategoryId = req.query.category_id || categoryId;
     
-    console.log('处理后的分页参数:', { page, pageSize, offset });
+    let queryString = `
+      SELECT n.id, n.title, n.content, n.status, n.cover_image, n.is_top, n.top_expire_time, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.created_at, n.updated_at,
+        GROUP_CONCAT(DISTINCT c.name SEPARATOR ',') as category_names,
+        GROUP_CONCAT(DISTINCT c.id SEPARATOR ',') as category_ids
+      FROM notes n
+      LEFT JOIN note_categories nc ON n.id = nc.note_id
+      LEFT JOIN categories c ON nc.category_id = c.id
+    `;
     
-    // 不选择content字段以提升加载速度
-    let query = 'SELECT n.id, n.title, n.cover_image, n.status, n.is_top, n.top_expire_time, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.view_count, n.created_at, n.updated_at, GROUP_CONCAT(c.name) as categories FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id';
-    const whereClause = [];
-    const params = [];
+    let countQuery = `
+      SELECT COUNT(DISTINCT n.id) as count
+      FROM notes n
+      LEFT JOIN note_categories nc ON n.id = nc.note_id
+      LEFT JOIN categories c ON nc.category_id = c.id
+    `;
     
+    let whereClause = [];
+    let params = [];
+    
+    // 关键词搜索
     if (keyword) {
       whereClause.push('(n.title LIKE ? OR n.content LIKE ?)');
       params.push(`%${keyword}%`, `%${keyword}%`);
     }
     
+    // 分类筛选
     if (actualCategoryId) {
-      whereClause.push('nc.category_id = ?');
+      whereClause.push('c.id = ?');
       params.push(actualCategoryId);
     }
     
-    // 支持按父类别筛选
+    // 父分类筛选
     if (parentCategoryId) {
-      // 查询该父分类下的所有子分类ID
       whereClause.push('c.parent_id = ?');
       params.push(parentCategoryId);
     }
     
-    if (status !== undefined && status !== '') {
+    // 状态筛选
+    if (status !== undefined) {
       whereClause.push('n.status = ?');
-      params.push(parseInt(status));
+      params.push(status);
     }
     
+    // 首页推荐筛选
+    if (isHomeRecommend !== undefined) {
+      whereClause.push('n.is_home_recommend = ?');
+      params.push(isHomeRecommend);
+    }
+    
+    // 置顶筛选
+    if (isTop !== undefined) {
+      whereClause.push('n.is_top = ?');
+      params.push(isTop);
+    }
+    
+    // 本周精选筛选
+    if (isWeekSelection !== undefined) {
+      whereClause.push('n.is_week_selection = ?');
+      params.push(isWeekSelection);
+    }
+    
+    // 本月推荐筛选
+    if (isMonthRecommend !== undefined) {
+      whereClause.push('n.is_month_recommend = ?');
+      params.push(isMonthRecommend);
+    }
+    
+    // 时间范围筛选
     if (startDate) {
       whereClause.push('n.created_at >= ?');
       params.push(startDate);
@@ -93,146 +410,115 @@ router.get('/', authMiddleware, async (req, res) => {
       params.push(endDate + ' 23:59:59');
     }
     
+    // 组合查询条件
     if (whereClause.length > 0) {
-      query += ' WHERE ' + whereClause.join(' AND ');
-    }
-    
-    // 不使用参数化的LIMIT和OFFSET，直接插入数值
-    const safePageSize = parseInt(pageSize) || 10;
-    const safeOffset = parseInt(offset) || 0;
-    query += ` GROUP BY n.id ORDER BY n.updated_at DESC LIMIT ${safePageSize} OFFSET ${safeOffset}`;
-    
-    console.log('完整SQL查询:', query);
-    console.log('参数数组:', params);
-    
-    const [notes] = await pool.execute(query, params);
-    
-    // 获取总条数
-    let countQuery = 'SELECT COUNT(DISTINCT n.id) as total FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id';
-    
-    // 直接使用params数组，因为LIMIT和OFFSET是直接拼接到SQL中的，没有添加到params中
-    if (whereClause.length > 0) {
+      queryString += ' WHERE ' + whereClause.join(' AND ');
       countQuery += ' WHERE ' + whereClause.join(' AND ');
     }
     
-    const [countResult] = await pool.execute(countQuery, params);
-    const total = countResult[0].total;
+    // 分组和排序
+    queryString += ' GROUP BY n.id ORDER BY n.updated_at DESC LIMIT ? OFFSET ?';
+    params.push(pageSize, offset);
     
-    const totalPages = Math.ceil(total / pageSize);
+    // 执行查询
+    const notes = await dbConfig.query(queryString, params);
+    const countResult = await dbConfig.query(countQuery, params);
+    const total = countResult[0].count;
     
+    // 处理结果数据
+    const processedNotes = notes.map(note => {
+      // 创建categories数组
+      const categories = [];
+      if (note.category_names && note.category_ids) {
+        const names = note.category_names.split(',');
+        const ids = note.category_ids.split(',').map(id => parseInt(id));
+        
+        // 组合成categories数组
+        for (let i = 0; i < names.length; i++) {
+          if (names[i] && ids[i]) {
+            categories.push({
+              id: ids[i],
+              name: names[i]
+            });
+          }
+        }
+      }
+      
+      return {
+        ...note,
+        categories: categories,
+        tag_names: [],
+        tag_ids: []
+        // 删除旧的分类字段，保持与API文档一致
+      };
+    });
+
     return res.json(formatSuccess({
-      list: notes,
+      list: processedNotes,
       total,
-      page: parseInt(page),
-      pageSize: parseInt(pageSize),
-      totalPages: totalPages
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize)
     }, '获取笔记列表成功'));
-    
   } catch (error) {
     console.error('获取笔记列表失败:', error);
-    
-    // 提供更具体的错误信息，帮助调试
-    const errorDetails = {
-      message: '获取笔记列表失败，请稍后重试',
-      errorType: error.name || 'UnknownError',
-      originalError: process.env.NODE_ENV === 'development' ? error.message : undefined
-    };
-    
-    return res.status(500).json(formatError(errorDetails.message, 500, errorDetails));
-  }
-});
-
-// 获取单条笔记
-router.get('/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const [notes] = await pool.execute(
-      'SELECT n.*, GROUP_CONCAT(nc.category_id) as category_ids, GROUP_CONCAT(c.name) as category_names FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.id = ? GROUP BY n.id',
-      [id]
-    );
-    
-    if (notes.length === 0) {
-      return res.status(404).json(formatError('笔记不存在', 404));
-    }
-    
-    const note = notes[0];
-    note.category_ids = note.category_ids ? note.category_ids.split(',').map(Number) : [];
-    note.category_names = note.category_names ? note.category_names.split(',') : [];
-    
-    return res.json(formatSuccess(note, '获取笔记成功'));
-    
-  } catch (error) {
-    console.error('获取笔记失败:', error);
-    return res.status(500).json(formatError('获取笔记失败，请稍后重试', 500));
+    return res.status(500).json(formatError('获取笔记列表失败，请稍后重试', 500));
   }
 });
 
 // 创建笔记
-router.post('/', authMiddleware, upload.single('cover_image'), async (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   try {
-    const { title, content, category_ids, status, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend } = req.body;
+    const { title, content, status, categoryIds = [], tagIds = [], cover_image, isTop = 0, topExpireTime = null, isHomeRecommend = 0, isWeekSelection = 0, isMonthRecommend = 0 } = req.body;
     
-    // 检查参数
+    // 验证必填字段
     if (!title || !content) {
       return res.status(400).json(formatError('标题和内容不能为空', 400));
     }
     
-    // 处理封面图片
-    let coverImage = null;
-    if (req.file) {
-      coverImage = `/uploads/${req.file.filename}`;
+    // 验证分类格式
+    if (!Array.isArray(categoryIds)) {
+      return res.status(400).json(formatError('分类ID格式不正确', 400));
     }
     
-    // 确保所有可能为undefined的参数都转换为null
-    const safeStatus = status !== undefined ? status : null;
-    const safeIsTop = is_top !== undefined ? is_top : null;
-    const safeTopExpireTime = top_expire_time !== undefined ? top_expire_time : null;
-    const safeIsHomeRecommend = is_home_recommend !== undefined ? is_home_recommend : null;
-    const safeIsWeekSelection = is_week_selection !== undefined ? is_week_selection : null;
-    const safeIsMonthRecommend = is_month_recommend !== undefined ? is_month_recommend : null;
+    // 处理文件ID
+    const coverImageFileId = cover_image || null;
     
     // 开始事务
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-    
-    try {
-      // 插入笔记
-      const [result] = await connection.execute(
-        'INSERT INTO notes (title, content, cover_image, status, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [title, content, coverImage, safeStatus, safeIsTop, safeTopExpireTime, safeIsHomeRecommend, safeIsWeekSelection, safeIsMonthRecommend]
+    const noteId = await dbConfig.transaction(async (connection) => {
+      // 插入笔记基本信息
+      const result = await dbConfig.executeInTransaction(connection,
+        'INSERT INTO notes (title, content, status, cover_image, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
+        [title, content, status, coverImageFileId, isTop, topExpireTime, isHomeRecommend, isWeekSelection, isMonthRecommend]
       );
       
-      const noteId = result.insertId;
+      const insertId = result.insertId;
       
-      // 插入笔记分类关联
-      if (category_ids && category_ids.length > 0) {
-        const categoryIds = Array.isArray(category_ids) ? category_ids : category_ids.split(',').map(Number);
-        for (const categoryId of categoryIds) {
-          await connection.execute(
-            'INSERT INTO note_categories (note_id, category_id) VALUES (?, ?)',
-            [noteId, categoryId]
-          );
+      // 插入分类关联
+      if (categoryIds.length > 0) {
+        const categoryValues = categoryIds.filter(id => id && !isNaN(id)).map(id => [insertId, id]);
+        if (categoryValues.length > 0) {
+          // 对于多行插入，需要使用query方法而不是execute方法
+          await connection.query('INSERT INTO note_categories (note_id, category_id) VALUES ?', [categoryValues]);
         }
       }
       
-      // 提交事务
-      await connection.commit();
+      // 不处理标签关联，因为note_tags表不存在
       
-      // 记录操作日志
-      const decoded = req.user;
-      await logAdminAction(decoded.id, decoded.username, '创建笔记', '笔记', noteId, { title, category_ids, status });
-      
-      return res.status(201).json(formatSuccess({ id: noteId }, '创建笔记成功'));
-      
-    } catch (error) {
-      // 回滚事务
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+      return insertId;
+    });
     
+    // 记录操作日志
+    const decoded = req.user;
+    const logData = {
+      title,
+      status,
+      categoryIds,
+      tagIds
+    };
+    await logAdminAction(decoded.id, decoded.username, '创建笔记', '笔记', noteId, logData);
+    
+    return res.json(formatSuccess({ noteId }, '创建笔记成功'));
   } catch (error) {
     console.error('创建笔记失败:', error);
     return res.status(500).json(formatError('创建笔记失败，请稍后重试', 500));
@@ -240,88 +526,81 @@ router.post('/', authMiddleware, upload.single('cover_image'), async (req, res) 
 });
 
 // 更新笔记
-router.put('/:id', authMiddleware, upload.single('cover_image'), async (req, res) => {
+router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, content, category_ids, status, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend, delete_cover } = req.body;
+    const { title, content, status, categoryIds = [], tagIds = [], cover_image, isTop, topExpireTime = null, isHomeRecommend, isWeekSelection, isMonthRecommend } = req.body;
     
-    // 检查参数
+    // 验证必填字段
     if (!title || !content) {
       return res.status(400).json(formatError('标题和内容不能为空', 400));
     }
     
-    // 开始事务
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
+    // 验证分类格式
+    if (!Array.isArray(categoryIds)) {
+      return res.status(400).json(formatError('分类ID格式不正确', 400));
+    }
     
-    try {
-      // 查询原笔记信息
-      const [originalNotes] = await connection.execute('SELECT cover_image FROM notes WHERE id = ?', [id]);
+    // 处理文件ID
+    const coverImageFileId = cover_image || null;
+    
+    // 开始事务
+    await dbConfig.transaction(async (connection) => {
+      // 验证笔记是否存在
+      const notes = await dbConfig.executeInTransaction(connection, 'SELECT id FROM notes WHERE id = ?', [id]);
       
-      if (originalNotes.length === 0) {
-        await connection.rollback();
-        return res.status(404).json(formatError('笔记不存在', 404));
+      if (notes.length === 0) {
+        throw new Error('笔记不存在');
       }
       
-      const originalNote = originalNotes[0];
+      // 查询当前笔记的置顶、推荐等状态
+      const currentNote = await dbConfig.executeInTransaction(connection, 'SELECT is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend FROM notes WHERE id = ?', [id]);
       
-      // 处理封面图片
-      let coverImage = originalNote.cover_image;
-      if (req.file) {
-        // 删除原图片
-        if (coverImage) {
-          const oldFilePath = path.join(__dirname, '..', '..', coverImage);
-          if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
-          }
-        }
-        coverImage = `/uploads/${req.file.filename}`;
-      } else if (delete_cover === 'true' && coverImage) {
-        // 删除封面
-        const oldFilePath = path.join(__dirname, '..', '..', coverImage);
-        if (fs.existsSync(oldFilePath)) {
-          fs.unlinkSync(oldFilePath);
-        }
-        coverImage = null;
-      }
+      // 使用当前状态作为默认值，只有在前端提供了新值时才更新
+      const finalIsTop = isTop !== undefined ? isTop : currentNote[0].is_top;
+      const finalTopExpireTime = topExpireTime !== undefined ? topExpireTime : currentNote[0].top_expire_time;
+      const finalIsHomeRecommend = isHomeRecommend !== undefined ? isHomeRecommend : currentNote[0].is_home_recommend;
+      const finalIsWeekSelection = isWeekSelection !== undefined ? isWeekSelection : currentNote[0].is_week_selection;
+      const finalIsMonthRecommend = isMonthRecommend !== undefined ? isMonthRecommend : currentNote[0].is_month_recommend;
       
-      // 更新笔记
-      await connection.execute(
-        'UPDATE notes SET title = ?, content = ?, cover_image = ?, status = ?, is_top = ?, top_expire_time = ?, is_home_recommend = ?, is_week_selection = ?, is_month_recommend = ? WHERE id = ?',
-        [title, content, coverImage, status, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend, id]
+      // 更新笔记基本信息
+      await dbConfig.executeInTransaction(connection,
+        'UPDATE notes SET title = ?, content = ?, status = ?, cover_image = ?, is_top = ?, top_expire_time = ?, is_home_recommend = ?, is_week_selection = ?, is_month_recommend = ?, updated_at = NOW() WHERE id = ?',
+        [title, content, status, coverImageFileId, finalIsTop ?? null, finalTopExpireTime ?? null, finalIsHomeRecommend ?? null, finalIsWeekSelection ?? null, finalIsMonthRecommend ?? null, id]
       );
       
-      // 删除原分类关联
-      await connection.execute('DELETE FROM note_categories WHERE note_id = ?', [id]);
+      // 先删除现有的分类关联
+      await dbConfig.executeInTransaction(connection, 'DELETE FROM note_categories WHERE note_id = ?', [id]);
       
-      // 插入新分类关联
-      if (category_ids && category_ids.length > 0) {
-        const categoryIds = Array.isArray(category_ids) ? category_ids : category_ids.split(',').map(Number);
-        for (const categoryId of categoryIds) {
-          await connection.execute(
-            'INSERT INTO note_categories (note_id, category_id) VALUES (?, ?)',
-            [id, categoryId]
+      // 再添加新的分类关联
+      if (categoryIds.length > 0) {
+        // 修复变量名冲突，使用categoryId而不是id作为参数名
+        const categoryValues = categoryIds.filter(categoryId => categoryId && !isNaN(categoryId)).map(categoryId => [id, categoryId]);
+        if (categoryValues.length > 0) {
+          // 修复批量插入语法问题
+          const placeholders = categoryValues.map(() => '(?, ?)').join(', ');
+          const flatValues = categoryValues.flat();
+          await dbConfig.executeInTransaction(connection,
+            `INSERT INTO note_categories (note_id, category_id) VALUES ${placeholders}`,
+            flatValues
           );
         }
       }
       
-      // 提交事务
-      await connection.commit();
-      
-      // 记录操作日志
-      const decoded = req.user;
-      await logAdminAction(decoded.id, decoded.username, '更新笔记', '笔记', id, { title, category_ids, status });
-      
-      return res.json(formatSuccess(null, '更新笔记成功'));
-      
-    } catch (error) {
-      // 回滚事务
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+      // 不处理标签关联，因为note_tags表不存在
+    });
     
+    // 记录操作日志
+    const decoded = req.user;
+    const logData = {
+      title,
+      status,
+      categoryIds,
+      tagIds
+    };
+    await logAdminAction(decoded.id, decoded.username, '更新笔记', '笔记', id, logData);
+    
+    return res.json(formatSuccess(null, '更新笔记成功'));
   } catch (error) {
     console.error('更新笔记失败:', error);
     return res.status(500).json(formatError('更新笔记失败，请稍后重试', 500));
@@ -334,50 +613,28 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     
     // 开始事务
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-    
-    try {
-      // 查询笔记信息
-      const [notes] = await connection.execute('SELECT cover_image FROM notes WHERE id = ?', [id]);
+    await dbConfig.transaction(async (connection) => {
+      // 验证笔记是否存在
+      const notes = await dbConfig.executeInTransaction(connection, 'SELECT cover_image FROM notes WHERE id = ?', [id]);
       
       if (notes.length === 0) {
-        await connection.rollback();
-        return res.status(404).json(formatError('笔记不存在', 404));
+        throw new Error('笔记不存在');
       }
-      
-      const note = notes[0];
       
       // 删除笔记
-      await connection.execute('DELETE FROM notes WHERE id = ?', [id]);
+      await dbConfig.executeInTransaction(connection, 'DELETE FROM notes WHERE id = ?', [id]);
       
-      // 笔记删除后，相关联的note_categories会通过外键约束自动删除
+      // 删除分类关联
+      await dbConfig.executeInTransaction(connection, 'DELETE FROM note_categories WHERE note_id = ?', [id]);
       
-      // 删除封面图片
-      if (note.cover_image) {
-        const filePath = path.join(__dirname, '..', '..', note.cover_image);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      }
-      
-      // 提交事务
-      await connection.commit();
-      
-      // 记录操作日志
-      const decoded = req.user;
-      await logAdminAction(decoded.id, decoded.username, '删除笔记', '笔记', id, {});
-      
-      return res.json(formatSuccess(null, '删除笔记成功'));
-      
-    } catch (error) {
-      // 回滚事务
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+      // 不删除标签关联，因为note_tags表不存在
+    });
     
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, '删除笔记', '笔记', id);
+    
+    return res.json(formatSuccess(null, '删除笔记成功'));
   } catch (error) {
     console.error('删除笔记失败:', error);
     return res.status(500).json(formatError('删除笔记失败，请稍后重试', 500));
@@ -385,109 +642,70 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 });
 
 // 批量删除笔记
-router.post('/batch-delete', authMiddleware, async (req, res) => {
+router.delete('/batch-delete', authMiddleware, async (req, res) => {
   try {
-    const { ids } = req.body;
+    const { noteIds } = req.body;
     
-    if (!ids || ids.length === 0) {
+    if (!noteIds || !Array.isArray(noteIds) || noteIds.length === 0) {
       return res.status(400).json(formatError('请选择要删除的笔记', 400));
     }
     
-    // 支持数组和单个ID
-    let noteIds = ids;
-    if (!Array.isArray(noteIds)) {
-      noteIds = [noteIds];
-    }
-    
-    // 修复MySQL无法直接处理数组参数的问题
-    const placeholders = noteIds.map(() => '?').join(',');
-    
     // 开始事务
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-    
-    try {
-      // 查询要删除的笔记的封面图片
-      const [notes] = await connection.execute(
-        `SELECT cover_image FROM notes WHERE id IN (${placeholders})`,
-        [...noteIds]
-      );
-      
+    await dbConfig.transaction(async (connection) => {
       // 删除笔记
-      await connection.execute(
-        `DELETE FROM notes WHERE id IN (${placeholders})`,
-        [...noteIds]
+      await dbConfig.executeInTransaction(connection,
+        'DELETE FROM notes WHERE id IN (?)',
+        [noteIds]
       );
       
-      // 删除封面图片
-      for (const note of notes) {
-        if (note.cover_image) {
-          const filePath = path.join(__dirname, '..', '..', note.cover_image);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
-        }
-      }
+      // 删除分类关联
+      await dbConfig.executeInTransaction(connection,
+        'DELETE FROM note_categories WHERE note_id IN (?)',
+        [noteIds]
+      );
       
-      // 提交事务
-      await connection.commit();
-      
-      // 记录操作日志
-      const decoded = req.user;
-      await logAdminAction(decoded.id, decoded.username, '批量删除笔记', '笔记', null, { count: noteIds.length, ids: noteIds });
-      
-      return res.json(formatSuccess(null, '批量删除成功'));
-      
-    } catch (error) {
-      // 回滚事务
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+      // 不删除标签关联，因为note_tags表不存在
+    });
     
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, '批量删除笔记', '笔记', null, { noteIds });
+    
+    return res.json(formatSuccess(null, '批量删除笔记成功'));
   } catch (error) {
     console.error('批量删除笔记失败:', error);
-    return res.status(500).json(formatError('批量删除失败，请稍后重试', 500));
+    return res.status(500).json(formatError('批量删除笔记失败，请稍后重试', 500));
   }
 });
 
 // 批量修改笔记状态
-router.post('/batch-update-status', authMiddleware, async (req, res) => {
+router.put('/batch-status', authMiddleware, async (req, res) => {
   try {
-    const { ids, status } = req.body;
-
-    // 支持数组和单个ID
-    let noteIds = ids;
-    if (!Array.isArray(noteIds)) {
-      noteIds = [noteIds];
+    const { noteIds, status } = req.body;
+    
+    if (!noteIds || !Array.isArray(noteIds) || noteIds.length === 0) {
+      return res.status(400).json(formatError('请选择要修改的笔记', 400));
     }
-
-    if (!noteIds || noteIds.length === 0) {
-      return res.status(400).json(formatError('请选择要操作的笔记', 400));
-    }
-
+    
     if (status === undefined) {
       return res.status(400).json(formatError('请指定状态', 400));
     }
-
-    // 修复MySQL无法直接处理数组参数的问题
-    const placeholders = noteIds.map(() => '?').join(',');
-    await pool.execute(
-      `UPDATE notes SET status = ? WHERE id IN (${placeholders})`,
-      [status, ...noteIds]
+    
+    // 更新笔记状态
+    await dbConfig.query(
+      'UPDATE notes SET status = ? WHERE id IN (?)',
+      [status, noteIds]
     );
-
+    
     // 记录操作日志
     const decoded = req.user;
     await logAdminAction(decoded.id, decoded.username, '批量修改笔记状态', '笔记', null, { count: noteIds.length, status });
-
+    
     return res.json(formatSuccess(null, '批量修改成功'));
-  
-    } catch (error) {
-      console.error('批量修改笔记状态失败:', error);
-      return res.status(500).json(formatError('批量修改失败，请稍后重试', 500));
-    }
+  } catch (error) {
+    console.error('批量修改笔记状态失败:', error);
+    return res.status(500).json(formatError('批量修改失败，请稍后重试', 500));
+  }
 });
 
 // 统计笔记数据
@@ -509,17 +727,17 @@ router.get('/stats/overview', authMiddleware, async (req, res) => {
     }
     
     // 获取统计数据
-    const [totalNotes] = await pool.execute(`SELECT COUNT(*) as count FROM notes ${whereClause}`, params);
-    const [activeNotes] = await pool.execute(`SELECT COUNT(*) as count FROM notes WHERE status = 1 ${whereClause.replace('WHERE', 'AND')}`, params);
-    const [topNotes] = await pool.execute(`SELECT COUNT(*) as count FROM notes WHERE is_top = 1 ${whereClause.replace('WHERE', 'AND')}`, params);
-    const [recommendedNotes] = await pool.execute(`SELECT COUNT(*) as count FROM notes WHERE is_home_recommend = 1 ${whereClause.replace('WHERE', 'AND')}`, params);
+    const totalNotes = await dbConfig.query(`SELECT COUNT(*) as count FROM notes ${whereClause}`, params);
+    const activeNotes = await dbConfig.query(`SELECT COUNT(*) as count FROM notes WHERE status = 1 ${whereClause.replace('WHERE', 'AND')}`, params);
+    const topNotes = await dbConfig.query(`SELECT COUNT(*) as count FROM notes WHERE is_top = 1 ${whereClause.replace('WHERE', 'AND')}`, params);
+    const recommendedNotes = await dbConfig.query(`SELECT COUNT(*) as count FROM notes WHERE is_home_recommend = 1 ${whereClause.replace('WHERE', 'AND')}`, params);
     
     return res.json(formatSuccess({
       total: totalNotes[0].count,
       active: activeNotes[0].count,
       top: topNotes[0].count,
       recommended: recommendedNotes[0].count
-    }, '获取统计数据成功'));
+    }, '获取笔记统计数据成功'));
     
   } catch (error) {
     console.error('获取笔记统计数据失败:', error);
@@ -598,7 +816,7 @@ router.get('/stats/detail', authMiddleware, async (req, res) => {
       `;
     }
     
-    const [stats] = await pool.execute(query, params);
+    const stats = await dbConfig.query(query, params);
     
     // 填充缺失的日期数据
     const filledStats = [];
@@ -638,7 +856,7 @@ router.get('/stats/detail', authMiddleware, async (req, res) => {
 router.put('/:id/top', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { top } = req.body;
+    const { top, top_expire_time } = req.body;
 
     // 检查参数
     if (top === undefined) {
@@ -646,27 +864,45 @@ router.put('/:id/top', authMiddleware, async (req, res) => {
     }
 
     // 验证笔记是否存在
-    const [notes] = await pool.execute('SELECT id FROM notes WHERE id = ?', [id]);
+    const notes = await dbConfig.query('SELECT id FROM notes WHERE id = ?', [id]);
     if (notes.length === 0) {
       return res.status(404).json(formatError('笔记不存在', 404));
     }
 
+    // 准备更新参数
+    const updateParams = [];
+    let updateQuery = 'UPDATE notes SET is_top = ?';
+    updateParams.push(top);
+    
+    // 如果设置了置顶过期时间
+    if (top === 1 && top_expire_time) {
+      updateQuery += ', top_expire_time = ?';
+      updateParams.push(top_expire_time);
+    } else if (top === 0) {
+      // 取消置顶时清除过期时间
+      updateQuery += ', top_expire_time = NULL';
+    }
+    
+    updateQuery += ' WHERE id = ?';
+    updateParams.push(id);
+
     // 更新置顶状态
-    await pool.execute(
-      'UPDATE notes SET is_top = ? WHERE id = ?',
-      [top, id]
-    );
+    await dbConfig.query(updateQuery, updateParams);
 
     // 记录操作日志
     const decoded = req.user;
-    await logAdminAction(decoded.id, decoded.username, '切换笔记置顶状态', '笔记', id, { top });
+    const logData = { top };
+    if (top_expire_time) {
+      logData.top_expire_time = top_expire_time;
+    }
+    await logAdminAction(decoded.id, decoded.username, '切换笔记置顶状态', '笔记', id, logData);
 
     return res.json(formatSuccess(null, top === 1 ? '置顶成功' : '取消置顶成功'));
       
-    } catch (error) {
-      console.error('切换笔记置顶状态失败:', error);
-      return res.status(500).json(formatError('切换置顶状态失败，请稍后重试', 500));
-    }
+  } catch (error) {
+    console.error('切换笔记置顶状态失败:', error);
+    return res.status(500).json(formatError('切换置顶状态失败，请稍后重试', 500));
+  }
 });
 
 // 批量笔记统计接口（根据统计指标筛选笔记）
@@ -713,7 +949,7 @@ router.post('/stats/filter', authMiddleware, async (req, res) => {
       ORDER BY n.updated_at DESC
     `;
     
-    const [allNotesStats] = await pool.execute(query, [formattedStartDate, formattedStartDate]);
+    const allNotesStats = await dbConfig.query(query, [formattedStartDate, formattedStartDate]);
     
     // 在应用层根据条件过滤结果
     const filteredNotes = allNotesStats.filter(note => {
@@ -747,23 +983,15 @@ router.post('/stats/filter', authMiddleware, async (req, res) => {
 });
 
 // 编辑器图片上传接口
-router.post('/upload-image', authMiddleware, upload.single('file'), async (req, res) => {
+// 注意：此接口已废弃，前端应直接调用统一的文件上传接口 /file/upload
+// 这里保留此接口作为过渡，实际处理应在前端完成
+router.post('/upload-image', authMiddleware, async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json(formatError('请选择要上传的图片', 400));
-    }
-    
-    // 构建图片URL
-    const imageUrl = `/uploads/${req.file.filename}`;
-    
-    // 记录操作日志
-    const decoded = req.user;
-    await logAdminAction(decoded.id, decoded.username, '上传笔记图片', '笔记', null, { filename: req.file.filename });
-    
-    return res.json(formatSuccess({ url: imageUrl }, '图片上传成功'));
+    // 提示前端使用统一文件接口
+    return res.status(400).json(formatError('此接口已废弃，请使用统一的文件上传接口 /file/upload', 400));
     
   } catch (error) {
-    console.error('图片上传失败:', error);
+    console.error('图片上传接口处理失败:', error);
     return res.status(500).json(formatError('图片上传失败，请稍后重试', 500));
   }
 });

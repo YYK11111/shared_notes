@@ -1,7 +1,52 @@
 import request from '@/utils/request'
 
+// 获取文件上传配置
+export const getFileUploadConfig = () => {
+  return request({
+    url: '/config/file-upload',
+    method: 'get'
+  });
+};
+
+// 更新文件上传配置
+export const updateFileUploadConfig = async (config) => {
+  return request({
+    url: '/config/file-upload/update',
+    method: 'POST',
+    data: config
+  })
+}
+
+// 批量更新系统配置
+export const batchUpdateSystemConfigs = async (configs) => {
+  return request({
+    url: '/config/batch/update',
+    method: 'PUT',
+    data: configs
+  })
+}
+
+// 获取单个系统配置
+export const getSingleSystemConfig = async (key) => {
+  return request({
+    url: `/config/${key}`,
+    method: 'GET'
+  })
+}
+
+// 更新单个系统配置
+export const updateSingleSystemConfig = async (key, value) => {
+  return request({
+    url: `/config/${key}`,
+    method: 'PUT',
+    data: {
+      value: value
+    }
+  })
+}
+
 // 获取系统配置
-export const getSystemConfig = () => {
+export const getSystemConfigs = () => {
   return request({
     url: '/config',
     method: 'get'
@@ -9,7 +54,7 @@ export const getSystemConfig = () => {
 }
 
 // 更新系统配置
-export const updateSystemConfig = (data) => {
+export const updateSystemConfigs = (data) => {
   return request({
     url: '/config',
     method: 'put',
@@ -20,7 +65,7 @@ export const updateSystemConfig = (data) => {
 // 获取搜索配置
 export const getSearchConfig = () => {
   return request({
-    url: '/config/search',
+    url: '/search/config',
     method: 'get'
   })
 }
@@ -28,11 +73,13 @@ export const getSearchConfig = () => {
 // 更新搜索配置
 export const updateSearchConfig = (data) => {
   return request({
-    url: '/config/search',
+    url: '/search/config',
     method: 'put',
     data
   })
 }
+
+
 
 // 获取首页配置
 export const getHomeConfig = () => {
@@ -59,37 +106,10 @@ export const backupSystem = () => {
   })
 }
 
-// 创建备份（为了兼容旧代码）
-export const createBackup = () => {
-  return backupSystem()
-}
-
-// 系统恢复
-export const restoreSystem = (data) => {
+// 获取系统信息
+export const getSystemInfo = () => {
   return request({
-    url: '/config/restore',
-    method: 'post',
-    data
-  })
-}
-
-// 从备份恢复（为了兼容旧代码）
-export const restoreFromBackup = (id) => {
-  return restoreSystem({ backup_id: id })
-}
-
-// 获取备份列表
-export const getBackupList = () => {
-  return request({
-    url: '/config/backups',
+    url: '/config/system/info',
     method: 'get'
-  })
-}
-
-// 删除备份
-export const deleteBackup = (id) => {
-  return request({
-    url: `/config/backups/${id}`,
-    method: 'delete'
   })
 }

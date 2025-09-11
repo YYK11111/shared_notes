@@ -57,3 +57,66 @@ export const getSearchSuggestions = (params) => {
     params
   })
 }
+
+// ---------------------------- 搜索管理功能 ----------------------------
+
+// 重建搜索索引
+export const rebuildSearchIndex = () => {
+  return request({
+    url: '/search/index/rebuild',
+    method: 'post'
+  })
+}
+
+// 获取搜索索引状态
+export const getSearchIndexStatus = () => {
+  return request({
+    url: '/search/index/status',
+    method: 'get'
+  })
+}
+
+// 获取搜索屏蔽列表
+export const getBlockedNotes = (params) => {
+  return request({
+    url: '/search/blocked',
+    method: 'get',
+    params
+  })
+}
+
+// 添加笔记到搜索屏蔽列表
+export const addBlockedNote = (data) => {
+  return request({
+    url: '/search/blocked/add',
+    method: 'post',
+    data
+  })
+}
+
+// 从搜索屏蔽列表移除笔记
+export const removeBlockedNote = (data) => {
+  return request({
+    url: '/search/blocked/remove',
+    method: 'post',
+    data
+  })
+}
+
+// 获取搜索日志
+export const getSearchLogs = (params) => {
+  return request({
+    url: '/search/logs',
+    method: 'get',
+    params
+  })
+}
+
+// 获取热门搜索词（管理后台用）
+export const getTrendingSearchWords = (params) => {
+  return request({
+    url: '/search/trending',
+    method: 'get',
+    params
+  })
+}

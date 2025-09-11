@@ -74,7 +74,7 @@
                 <div class="upload-file-container">
                   <img :src="file.url" alt="封面图片" class="preview-image" />
                   <div v-if="file.status === 'uploading'" class="upload-progress">
-                    <el-progress :percentage="file.percentage" stroke-width="2" />
+                    <el-progress :percentage="file.percentage" :stroke-width="2" />
                   </div>
                   <div class="el-upload__file-action">
                     <el-icon @click="handleRemoveImage"><Delete /></el-icon>
@@ -129,25 +129,9 @@
             <div class="form-hint">最多添加5个关键词</div>
           </el-form-item>
           
-          <!-- 编辑模式下显示 -->
+          <!-- 编辑模式下显示的额外字段 -->
           <div v-if="isEditMode" class="edit-mode-fields">
-            <el-form-item label="创建时间">
-              <el-date-picker
-                v-model="noteForm.created_at"
-                type="datetime"
-                placeholder="选择创建时间"
-                style="width: 100%"
-              />
-            </el-form-item>
-            
-            <el-form-item label="更新时间">
-              <el-date-picker
-                v-model="noteForm.updated_at"
-                type="datetime"
-                placeholder="选择更新时间"
-                style="width: 100%"
-              />
-            </el-form-item>
+            <!-- 创建时间和更新时间已隐藏，由系统自动处理 -->
           </div>
         </el-form>
       </div>
@@ -161,7 +145,8 @@ import { useRouter, useRoute } from 'vue-router'
 import dayjs from 'dayjs'
 import { Check, ArrowLeft, Plus, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElProgress } from 'element-plus'
-import { createNote, updateNote, getNoteDetail, uploadNoteImage } from '@/api/note'
+import { createNote, updateNote, getNoteDetail } from '@/api/note'
+import { uploadNoteImage, deleteFile, getFileDataUrl } from '@/api/file'
 import { getCategoryList } from '@/api/category'
 
 // 路由信息
@@ -222,6 +207,11 @@ const noteForm = reactive({
   cover_image: '',
   status: 1,
   is_recommended: '0',
+  is_top: 0,
+  top_expire_time: null,
+  is_home_recommend: 0,
+  is_week_selection: 0,
+  is_month_recommend: 0,
   content: '',
   seo_description: '',
   seo_keywords: '',
@@ -288,22 +278,70 @@ const handleCategoryChange = (value) => {
   }
 }
 
+// 处理封面图片 - 重写的函数
+const handleCoverImage = async (coverImageId) => {
+  // 清空当前图片列表
+  imageFileList.value = [];
+  
+  // 如果没有封面图片ID，直接返回
+  if (!coverImageId) {
+    return;
+  }
+  
+  try {
+    // 调用getFileDataUrl获取文件Data URL
+    const dataUrl = await getFileDataUrl(coverImageId);
+    
+    // 创建图片文件对象
+    imageFileList.value = [{
+      url: dataUrl,
+      status: 'success',
+      uid: Date.now(),
+      name: `cover_${coverImageId}`,
+      raw: null
+    }];
+    
+    // 显示成功提示
+    ElMessage.success('封面图片加载成功');
+  } catch (error) {
+    // 显示错误提示
+    ElMessage.error('加载封面图片失败：' + error.message);
+    imageFileList.value = [];
+  }
+}
+
 // 获取笔记详情（编辑模式）
-const fetchNoteDetail = async () => {
-  if (!isEditMode) return;
+const fetchNoteDetail = async (retryCount = 0) => {
+  
+  if (!isEditMode) {
+    return;
+  }
   
   loading.value = true;
   try {
+    // 1. 先获取笔记详情
     const response = await getNoteDetail(noteId);
+    
     const note = response.data;
     
-    // 修复分类信息不显示问题 - 使用API返回的category_ids数组
+    // 从API返回的categories数组中提取category_ids
+    let categoryIds = [];
+    if (note.categories && Array.isArray(note.categories)) {
+      categoryIds = note.categories.map(cat => cat.id);
+    }
+    
+    // 修复分类信息不显示问题，并确保置顶、推荐等字段值被正确设置
     Object.assign(noteForm, {
       title: note.title,
-      category_id: note.category_ids && note.category_ids.length > 0 ? note.category_ids[0] : '',
+      category_id: categoryIds.length > 0 ? categoryIds[0] : '',
       cover_image: note.cover_image || '',
       status: note.status,
       is_recommended: note.is_recommended ? '1' : '0',
+      is_top: note.is_top || 0,
+      top_expire_time: note.top_expire_time ? dayjs(note.top_expire_time).toDate() : null,
+      is_home_recommend: note.is_home_recommend || 0,
+      is_week_selection: note.is_week_selection || 0,
+      is_month_recommend: note.is_month_recommend || 0,
       content: note.content,
       seo_description: note.seo_description || '',
       seo_keywords: note.seo_keywords || '',
@@ -312,9 +350,9 @@ const fetchNoteDetail = async () => {
     });
     
     // 设置级联选择器的值
-    if (note.category_ids && note.category_ids.length > 0) {
+    if (categoryIds.length > 0) {
       // 查找并设置级联路径（使用第一个分类ID）
-      const categoryPath = findCategoryPath(note.category_ids[0], categoriesTree.value);
+      const categoryPath = findCategoryPath(categoryIds[0], categoriesTree.value);
       if (categoryPath && categoryPath.length > 0) {
         cascaderValue.value = categoryPath;
       }
@@ -325,15 +363,35 @@ const fetchNoteDetail = async () => {
       tagList.value = [...note.tags];
     }
     
-    // 处理封面图片
-    if (note.cover_image) {
-      imageFileList.value = [{ url: note.cover_image, status: 'success' }];
-    }
+    // 2. 再处理封面图片（调用统一文件处理接口）
+    await handleCoverImage(note.cover_image);
+    
   } catch (error) {
-    ElMessage.error('获取笔记详情失败：' + (error.message || '未知错误'));
-    console.error('获取笔记详情失败:', error);
-    // 如果获取失败，返回笔记列表页
-    router.push('/admin/notes');
+    
+    // 尝试重试逻辑
+    if (retryCount < 1 && error.response?.status === 500) {
+      ElMessage.warning('获取笔记详情失败，正在尝试重试...');
+      // 延迟1秒后重试
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      fetchNoteDetail(retryCount + 1);
+      return;
+    }
+    
+    // 显示错误信息并提供重试和返回选项
+    ElMessageBox.alert(
+      '获取笔记详情失败：' + (error.response?.data?.msg || error.message || '未知错误'),
+      '错误',
+      {
+        confirmButtonText: '重试',
+        showCancelButton: true,
+        cancelButtonText: '返回列表',
+        type: 'error'
+      }
+    ).then(() => {
+      fetchNoteDetail();
+    }).catch(() => {
+      router.push('/admin/notes');
+    });
   } finally {
     loading.value = false;
   }
@@ -456,29 +514,33 @@ const handleImageUpload = async (options) => {
   const { file, onSuccess, onError, onProgress } = options;
   
   try {
-    // 创建FormData对象
-    const formData = new FormData();
-    formData.append('image', file);
-    
     // 调用上传图片接口，监听进度
-    const response = await uploadNoteImage(formData, {
+    const response = await uploadNoteImage(file, {
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         onProgress && onProgress({ percent });
       }
     });
     
-    if (response.code === 200 && response.data?.url) {
-      noteForm.cover_image = response.data.url;
+    if (response.code === 200 && response.data?.fileId) {
+      // 只保存fileId，不保存完整URL
+      noteForm.cover_image = response.data.fileId;
+      // 更新imageFileList，使用完整URL进行预览
+      imageFileList.value = [{
+        url: `/file/get/${response.data.fileId}`,
+        status: 'success',
+        uid: Date.now(),
+        name: file.name
+      }];
       onSuccess(response);
-      ElMessage.success('图片上传成功');
+      ElMessage.success('封面上传成功');
     } else {
-      throw new Error(response.message || '图片上传失败');
+      throw new Error(response.message || '封面上传失败');
     }
   } catch (error) {
     onError(error);
-    ElMessage.error('图片上传失败：' + (error.message || '未知错误'));
-    console.error('图片上传失败:', error);
+    ElMessage.error('封面上传失败：' + (error.message || '未知错误'));
+    console.error('封面上传失败:', error);
   }
 }
 
@@ -487,24 +549,82 @@ const handleExceed = () => {
   ElMessage.warning('最多只能上传1张封面图片');
 }
 
+// 检查并上传图片（在保存前自动调用）
+const checkAndUploadImage = async () => {
+  // 检查是否有选择图片但尚未上传（判断是否有raw文件对象且cover_image为空）
+  if (imageFileList.value.length > 0 && 
+      imageFileList.value[0].raw && 
+      (!noteForm.cover_image || !noteForm.cover_image.trim())) {
+    
+    // 获取选中的文件
+    const file = imageFileList.value[0].raw;
+    if (!file) {
+      throw new Error('未找到有效的图片文件');
+    }
+    
+    // 执行上传并等待完成
+    await new Promise((resolve, reject) => {
+      handleImageUpload({
+        file,
+        onSuccess: (response) => {
+          resolve(response);
+        },
+        onError: (error) => {
+          reject(error);
+        },
+        onProgress: (event) => {
+          // 更新进度信息
+          if (imageFileList.value[0]) {
+            imageFileList.value[0].percentage = event.percent;
+            imageFileList.value[0].status = 'uploading';
+          }
+        }
+      });
+    });
+  }
+}
+
 // 移除图片
-const handleRemoveImage = () => {
-  imageFileList.value = [];
-  noteForm.cover_image = '';
+const handleRemoveImage = async () => {
+  // 如果有已上传到服务器的图片（存在fileId），调用接口删除
+  if (noteForm.cover_image && noteForm.cover_image.trim()) {
+    try {
+      // 显示加载状态
+      imageUploadLoading.value = true;
+      
+      // 调用删除文件接口
+      await deleteFile(noteForm.cover_image);
+      
+      // 清空图片信息
+      imageFileList.value = [];
+      noteForm.cover_image = '';
+      
+      ElMessage.success('图片删除成功');
+    } catch (error) {
+      ElMessage.error('删除图片失败：' + (error.message || '未知错误'));
+      console.error('删除图片失败:', error);
+      // 即使删除失败，也清空本地图片信息，避免状态不一致
+      imageFileList.value = [];
+      noteForm.cover_image = '';
+    } finally {
+      imageUploadLoading.value = false;
+    }
+  } else {
+    // 如果是本地未上传的图片，直接清空
+    imageFileList.value = [];
+    noteForm.cover_image = '';
+  }
 }
 
 // 处理Markdown编辑器中的图片添加
 const handleImgAdd = async (pos, file) => {
   try {
-    // 创建FormData对象
-    const formData = new FormData();
-    formData.append('image', file);
-    
     // 调用上传图片接口
-    const response = await uploadNoteImage(formData);
+    const response = await uploadNoteImage(file);
     
-    if (response.code === 200 && response.data?.url) {
-      const url = response.data.url;
+    if (response.code === 200 && response.data?.fileId) {
+      // 使用fileId构建图片URL
+      const url = `/file/get/${response.data.fileId}`;
       
       // v3.0.2版本直接使用editor的方式插入图片
       const markdown = noteForm.content;
@@ -538,23 +658,41 @@ const handleSaveNote = async () => {
     return;
   }
   
-  // 准备保存的数据
-  const noteData = {
+  // 在保存之前，先检查并上传图片
+  try {
+    loading.value = true;
+    await checkAndUploadImage();
+  } catch (error) {
+    loading.value = false;
+    ElMessage.error('图片上传失败：' + (error.message || '未知错误'));
+    return;
+  }
+  
+  // 准备保存的数据 - 使用普通对象而不是FormData
+  // 包含置顶、推荐等字段以确保它们不会被清除，但不允许前端修改
+  const formData = {
     title: noteForm.title,
-    category_id: noteForm.category_id,
-    tags: tagList.value,
-    cover_image: noteForm.cover_image,
-    status: noteForm.status,
-    is_recommended: noteForm.is_recommended === '1',
     content: noteForm.content,
+    status: noteForm.status,
+    tags: JSON.stringify(tagList.value),
+    categoryIds: noteForm.category_id ? [noteForm.category_id] : [], // 转换为数组格式
+    isTop: noteForm.is_top,
+    isHomeRecommend: noteForm.is_home_recommend,
+    isWeekSelection: noteForm.is_week_selection,
+    isMonthRecommend: noteForm.is_month_recommend,
     seo_description: noteForm.seo_description,
     seo_keywords: noteForm.seo_keywords
   };
   
-  // 如果是编辑模式，添加时间字段
-  if (isEditMode) {
-    noteData.created_at = noteForm.created_at;
-    noteData.updated_at = noteForm.updated_at;
+  // 特殊处理top_expire_time - 只在有值时添加
+  if (noteForm.top_expire_time && noteForm.top_expire_time !== null) {
+    formData.topExpireTime = noteForm.top_expire_time;
+  }
+  
+  // 处理封面图片
+  if (noteForm.cover_image && noteForm.cover_image.trim()) {
+    // 只要cover_image存在且不为空，就直接添加到formData中
+    formData.cover_image = noteForm.cover_image;
   }
   
   loading.value = true;
@@ -562,9 +700,10 @@ const handleSaveNote = async () => {
     let response;
     
     if (isEditMode) {
-      response = await updateNote(noteId, noteData);
+      // 更新时间由后端处理，不需要前端设置
+      response = await updateNote(noteId, formData);
     } else {
-      response = await createNote(noteData);
+      response = await createNote(formData);
     }
     
     if (response.code === 200) {
@@ -616,12 +755,18 @@ onBeforeUnmount(() => {
 
 // 初始化页面数据
 onMounted(async () => {
-  // 先获取分类数据，确保categoriesTree已经加载完成
-  await fetchCategories();
   
-  // 然后再获取笔记详情
-  if (isEditMode) {
-    fetchNoteDetail();
+  try {
+    // 先获取分类数据，确保categoriesTree已经加载完成
+    await fetchCategories();
+    
+    // 然后再获取笔记详情
+    if (isEditMode) {
+      // 使用await确保fetchNoteDetail执行完成
+      await fetchNoteDetail();
+    }
+  } catch (error) {
+    ElMessage.error('页面加载失败，请刷新页面重试');
   }
 })
 </script>
@@ -629,8 +774,6 @@ onMounted(async () => {
 <style scoped>
 .note-edit-page {
   padding: 1.5rem;
-  background-color: #f5f7fa;
-  min-height: 100vh;
 }
 
 .card-header {
@@ -671,6 +814,10 @@ onMounted(async () => {
   color: #909399;
 }
 
+.upload-button {
+  margin-top: 0.5rem;
+}
+
 .editor-container {
   border: 1px solid #ebeef5;
   border-radius: 0.25rem;
@@ -682,12 +829,39 @@ onMounted(async () => {
   position: relative;
   width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
 .preview-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: opacity 0.3s;
+}
+
+/* 确保删除按钮在鼠标悬浮时显示 */
+.upload-file-container:hover .el-upload__file-action {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.el-upload__file-action {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  display: none;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.upload-file-container:hover .preview-image {
+  opacity: 0.7;
 }
 
 .upload-progress {

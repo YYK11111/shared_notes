@@ -32,8 +32,8 @@
         </el-select>
         <el-select v-model="statusFilter" placeholder="选择状态" class="filter-select">
           <el-option label="全部" value="" />
-          <el-option label="启用" value="enabled" />
-          <el-option label="禁用" value="disabled" />
+          <el-option label="启用" value="1" />
+          <el-option label="禁用" value="0" />
         </el-select>
         <el-button type="primary" @click="handleSearch" class="search-button">搜索</el-button>
         <el-button @click="resetFilters" class="reset-button">重置</el-button>
@@ -59,8 +59,8 @@
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'enabled' ? 'success' : 'danger'">
-              {{ row.status === 'enabled' ? '启用' : '禁用' }}
+            <el-tag :type="row.status === 1 ? 'success' : 'danger'">
+              {{ row.status === 1 ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -83,8 +83,8 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEditAdmin(row.id)">编辑</el-button>
             <el-button link type="info" @click="handleResetPassword(row.id)">重置密码</el-button>
-            <el-button link @click="toggleAdminStatus(row.id, row.status)" :disabled="isSuperAdmin(row.id)">
-              {{ row.status === 'enabled' ? '禁用' : '启用' }}
+            <el-button link @click="toggleAdminStatus(row.id, row.status, row.nickname)" :disabled="isSuperAdmin(row.id)">
+              {{ row.status === 1 ? '禁用' : '启用' }}
             </el-button>
             <el-button link type="danger" @click="handleDeleteAdmin(row.id)" :disabled="isSuperAdmin(row.id)">删除</el-button>
           </template>
@@ -108,11 +108,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { Plus, Delete, Search } from '@element-plus/icons-vue'
-import { getAdminList, deleteAdmin, updateAdminStatus, resetAdminPassword } from '@/api/admin'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getAdminList, deleteAdmin, updateAdmin, updateAdminStatus, resetAdminPassword } from '@/api/admin'
 import { getRoleList } from '@/api/admin'
 import { useAuthStore } from '@/store/auth'
 
@@ -147,8 +148,13 @@ const fetchAdmins = async () => {
     }
     
     const response = await getAdminList(params)
-    adminsData.value = response.data?.items || []
-    totalCount.value = response.data?.total || 0
+    // 修复数据格式问题：接口返回的是 data.list（二维数组），而不是 data.items
+    // 从二维数组中提取一维数据，如果 list 为空则使用空数组
+    const adminList = response.data?.list && response.data.list.length > 0 ? response.data.list[0] : []
+    adminsData.value = adminList || []
+    
+    // 修复总数问题：如果接口返回的 total 为 0 但实际有数据，使用实际数据长度
+    totalCount.value = (response.data?.total > 0) ? response.data.total : adminsData.value.length
   } catch (error) {
     ElMessage.error('获取管理员列表失败：' + (error.message || '未知错误'))
     console.error('获取管理员列表失败:', error)
@@ -161,7 +167,8 @@ const fetchAdmins = async () => {
 const fetchRoles = async () => {
   try {
     const response = await getRoleList()
-    roles.value = response.data?.items || []
+    // 修复数据格式问题：接口返回的角色数据在 data.list 中，而不是 data.items
+    roles.value = response.data?.list || []
   } catch (error) {
     ElMessage.error('获取角色列表失败')
     console.error('获取角色列表失败:', error)
@@ -213,12 +220,12 @@ const handleSelectionChange = (selection) => {
 
 // 创建新管理员
 const handleCreateAdmin = () => {
-  router.push('/admin/admin/create')
+  router.push('/admin/admins/create')
 }
 
 // 编辑管理员
 const handleEditAdmin = (id) => {
-  router.push('/admin/admin/edit/' + id)
+  router.push('/admin/admins/edit/' + id)
 }
 
 // 删除管理员
@@ -285,26 +292,27 @@ const handleBatchDelete = async () => {
 }
 
 // 切换管理员状态
-const toggleAdminStatus = async (id, currentStatus) => {
+const toggleAdminStatus = async (id, currentStatus, nickname) => {
   if (isSuperAdmin(id)) {
     ElMessage.warning('超级管理员状态不能被修改')
     return
   }
   
+  const newStatus = currentStatus === 1 ? 0 : 1
+  const actionText = newStatus === 1 ? '启用' : '禁用'
+  
   try {
-    const newStatus = currentStatus === 'enabled' ? 'disabled' : 'enabled'
-    const actionText = newStatus === 'enabled' ? '启用' : '禁用'
-    
     await ElMessageBox.confirm(
       `确定要${actionText}这个管理员吗？`,
       `确认${actionText}`,
       {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
-        type: newStatus === 'enabled' ? 'success' : 'warning'
+        type: newStatus === 1 ? 'success' : 'warning'
       }
     )
     
+    // 使用专用的updateAdminStatus接口更新状态，不需要传递nickname字段
     await updateAdminStatus(id, { status: newStatus })
     ElMessage.success(`管理员${actionText}成功`)
     fetchAdmins()
@@ -365,8 +373,6 @@ onMounted(() => {
 <style scoped>
 .admin-user-list-page {
   padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
 }
 
 .card-header {

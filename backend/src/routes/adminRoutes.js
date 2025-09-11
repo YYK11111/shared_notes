@@ -1,21 +1,36 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../database/db');
+const { query, pool } = require('../database/db');
 const bcrypt = require('bcryptjs');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { logAdminAction } = require('../utils/logger');
 const { successResponse: formatSuccess, errorResponse: formatError, paginatedResponse } = require('../utils/responseFormatter');
 
-// 获取管理员列表
+// 获取管理员列表 - 支持两种路径格式
 router.get('/', authMiddleware, async (req, res) => {
+  // 复用管理员列表功能
+  return getAdminList(req, res);
+});
+
+// 为前端请求添加兼容的/admins路径
+router.get('/admins', authMiddleware, async (req, res) => {
+  return getAdminList(req, res);
+});
+
+// 管理员列表处理函数
+async function getAdminList(req, res) {
   try {
     // 确保page和pageSize是有效的数字
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 10;
     const { keyword, status, role_id } = req.query;
-    const offset = (page - 1) * pageSize;
     
-    let query = 'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id';
+    // 确保page和pageSize是有效的正整数
+    const validPage = Math.max(1, isNaN(page) ? 1 : page);
+    const validPageSize = Math.max(1, Math.min(100, isNaN(pageSize) ? 10 : pageSize));
+    const offset = (validPage - 1) * validPageSize;
+    
+    let sqlQuery = 'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id';
     const whereClause = [];
     const params = [];
     
@@ -37,14 +52,14 @@ router.get('/', authMiddleware, async (req, res) => {
     }
     
     if (whereClause.length > 0) {
-      query += ' WHERE ' + whereClause.join(' AND ');
+      sqlQuery += ' WHERE ' + whereClause.join(' AND ');
     }
     
-    // 直接在SQL查询中插入值，避免参数化查询的问题
-    query += ` ORDER BY a.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`;
-    console.log('SQL Query:', query);
+    // 添加排序和分页
+    sqlQuery += ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?';
+    params.push(validPageSize, offset);
     
-    const [admins] = await pool.query(query);
+    const admins = await query(sqlQuery, params);
     
     // 获取总条数
     let countQuery = 'SELECT COUNT(*) as total FROM admins a LEFT JOIN roles r ON a.role_id = r.id';
@@ -53,53 +68,23 @@ router.get('/', authMiddleware, async (req, res) => {
       countQuery += ' WHERE ' + whereClause.join(' AND ');
     }
     
-    // 对于总条数查询，仍然需要使用参数化查询
-    const countParams = [];
-    if (keyword) {
-      countParams.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
-    }
-    if (status !== undefined && status !== '' && !isNaN(parseInt(status))) {
-      countParams.push(parseInt(status));
-    }
-    if (role_id !== undefined && role_id !== '' && !isNaN(parseInt(role_id))) {
-      countParams.push(parseInt(role_id));
-    }
+    // 对于总条数查询，直接复用params数组，但去掉分页参数
+    const countParams = params.slice(0, -2); // 移除最后两个参数(LIMIT和OFFSET)
     
     console.log('Count Query:', countQuery);
     console.log('Count Params:', countParams);
     
-    const [countResult] = await pool.execute(countQuery, countParams);
+    const countResult = await query(countQuery, countParams);
     const total = countResult[0].total;
     
-    return res.json(paginatedResponse(admins, total, page, pageSize, '获取管理员列表成功'));
+    return res.json(paginatedResponse(admins, total, validPage, validPageSize, '获取管理员列表成功'));
     
   } catch (error) {
     console.error('获取管理员列表失败:', error);
     return res.status(500).json(formatError('获取管理员列表失败，请稍后重试', 500));
   }
-});
+}
 
-// 获取单个管理员详情
-router.get('/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const [admins] = await pool.execute(
-      'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
-      [id]
-    );
-    
-    if (admins.length === 0) {
-      return res.status(404).json(formatError('管理员不存在', 404));
-    }
-    
-    return res.json(formatSuccess(admins[0], '获取管理员详情成功'));
-    
-  } catch (error) {
-    console.error('获取管理员详情失败:', error);
-    return res.status(500).json(formatError('获取管理员详情失败，请稍后重试', 500));
-  }
-});
 
 // 创建管理员
 router.post('/', authMiddleware, async (req, res) => {
@@ -239,6 +224,42 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// 重置管理员密码
+router.put('/:id/reset-password', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    
+    // 检查参数
+    if (!password) {
+      return res.status(400).json(formatError('密码不能为空', 400));
+    }
+    
+    // 检查管理员是否存在
+    const [admins] = await pool.execute('SELECT * FROM admins WHERE id = ?', [id]);
+    
+    if (admins.length === 0) {
+      return res.status(404).json(formatError('管理员不存在', 404));
+    }
+    
+    // 加密密码
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // 更新密码
+    await pool.execute('UPDATE admins SET password = ? WHERE id = ?', [hashedPassword, id]);
+    
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, '重置管理员密码', '管理员', id, {});
+    
+    return res.json(formatSuccess(null, '密码重置成功'));
+    
+  } catch (error) {
+    console.error('重置密码失败:', error);
+    return res.status(500).json(formatError('重置密码失败，请稍后重试', 500));
+  }
+});
+
 // 删除管理员
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
@@ -334,9 +355,46 @@ router.post('/batch-delete', authMiddleware, async (req, res) => {
 // 获取角色列表
 router.get('/roles', authMiddleware, async (req, res) => {
   try {
-    const [roles] = await pool.execute('SELECT * FROM roles ORDER BY id ASC');
+    // 确保page和pageSize是有效的数字
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 10;
+    const { keyword } = req.query;
+    const offset = (page - 1) * pageSize;
     
-    return res.json(formatSuccess(roles, '获取角色列表成功'));
+    let sqlQuery = 'SELECT r.*, (SELECT COUNT(*) FROM admins a WHERE a.role_id = r.id) as user_count FROM roles r';
+    const whereClause = [];
+    const params = [];
+    
+    if (keyword) {
+      whereClause.push('(r.name LIKE ? OR r.description LIKE ?)');
+      params.push(`%${keyword}%`, `%${keyword}%`);
+    }
+    
+    if (whereClause.length > 0) {
+      sqlQuery += ' WHERE ' + whereClause.join(' AND ');
+    }
+    
+    // 添加排序和分页
+    sqlQuery += ' ORDER BY r.id ASC LIMIT ? OFFSET ?';
+    params.push(pageSize, offset);
+    
+    // 执行查询获取角色列表
+    const [roles] = await query(sqlQuery, params);
+    
+    // 查询总记录数
+    let countQuery = 'SELECT COUNT(*) as total FROM roles';
+    const countParams = [];
+    
+    if (whereClause.length > 0) {
+      countQuery += ' WHERE ' + whereClause.join(' AND ');
+      countParams.push(...params.slice(0, -2)); // 排除LIMIT和OFFSET参数
+    }
+    
+    const [countResult] = await query(countQuery, countParams);
+    const totalCount = countResult[0].total;
+    
+    // 返回分页数据
+    return res.json(paginatedResponse(roles, totalCount, page, pageSize, '获取角色列表成功'));
     
   } catch (error) {
     console.error('获取角色列表失败:', error);
@@ -471,6 +529,65 @@ router.delete('/roles/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('删除角色失败:', error);
     return res.status(500).json(formatError('删除角色失败，请稍后重试', 500));
+  }
+});
+
+// 更新角色状态（启用或禁用）
+router.put('/roles/:id/status', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    // 检查参数
+    if (status === undefined || status === null) {
+      return res.status(400).json(formatError('状态不能为空', 400));
+    }
+    
+    // 确保status是有效的数字
+    const validStatus = parseInt(status);
+    if (isNaN(validStatus) || (validStatus !== 0 && validStatus !== 1)) {
+      return res.status(400).json(formatError('状态值必须是0（禁用）或1（启用）', 400));
+    }
+    
+    // 检查角色是否存在
+    const [roles] = await pool.execute('SELECT * FROM roles WHERE id = ?', [id]);
+    
+    if (roles.length === 0) {
+      return res.status(404).json(formatError('角色不存在', 404));
+    }
+    
+    const role = roles[0];
+    
+    // 检查是否是超级管理员角色（不允许禁用）
+    if (role.code === 'super_admin') {
+      return res.status(400).json(formatError('不能禁用超级管理员角色', 400));
+    }
+    
+    // 如果禁用角色，检查是否有管理员关联此角色
+    if (validStatus === 0) {
+      const [admins] = await pool.execute('SELECT * FROM admins WHERE role_id = ? AND status = 1', [id]);
+      
+      if (admins.length > 0) {
+        return res.status(400).json(formatError('该角色下有活跃的管理员，不允许禁用', 400));
+      }
+    }
+    
+    // 更新角色状态
+    await pool.execute('UPDATE roles SET status = ? WHERE id = ?', [validStatus, id]);
+    
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, `${validStatus === 1 ? '启用' : '禁用'}角色`, '角色', id, { 
+      roleName: role.name,
+      oldStatus: role.status,
+      newStatus: validStatus
+    });
+    
+    return res.json(formatSuccess(null, `角色${validStatus === 1 ? '启用' : '禁用'}成功`));
+    
+  } catch (error) {
+    console.error('更新角色状态失败:', error);
+    return res.status(500).json(formatError('更新角色状态失败，请稍后重试', 500));
   }
 });
 
@@ -700,6 +817,89 @@ router.get('/system-logs', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('获取系统操作日志失败:', error);
     return res.status(500).json(formatError('获取系统操作日志失败，请稍后重试', 500));
+  }
+});
+
+// 获取单个管理员详情
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [admins] = await pool.execute(
+      'SELECT a.*, r.name as role_name FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE a.id = ?',
+      [id]
+    );
+    
+    if (admins.length === 0) {
+      return res.status(404).json(formatError('管理员不存在', 404));
+    }
+    
+    return res.json(formatSuccess(admins[0], '获取管理员详情成功'));
+    
+  } catch (error) {
+    console.error('获取管理员详情失败:', error);
+    return res.status(500).json(formatError('获取管理员详情失败，请稍后重试', 500));
+  }
+});
+
+// 更新管理员状态（启用或禁用）
+router.put('/status/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    // 检查参数
+    if (status === undefined || status === null) {
+      return res.status(400).json(formatError('状态不能为空', 400));
+    }
+    
+    // 确保status是有效的数字
+    const validStatus = parseInt(status);
+    if (isNaN(validStatus) || (validStatus !== 0 && validStatus !== 1)) {
+      return res.status(400).json(formatError('状态值必须是0（禁用）或1（启用）', 400));
+    }
+    
+    // 检查管理员是否存在
+    const [admins] = await pool.execute('SELECT * FROM admins WHERE id = ?', [id]);
+    
+    if (admins.length === 0) {
+      return res.status(404).json(formatError('管理员不存在', 404));
+    }
+    
+    const admin = admins[0];
+    
+    // 检查是否是超级管理员
+    const [roleInfo] = await pool.execute(
+      'SELECT r.code FROM roles r WHERE r.id = ?',
+      [admin.role_id]
+    );
+    
+    // 如果是超级管理员，检查是否是最后一个
+    if (roleInfo.length > 0 && roleInfo[0].code === 'super_admin') {
+      // 查询所有启用的超级管理员数量
+      const [enabledSuperAdmins] = await pool.execute(
+        'SELECT COUNT(*) as count FROM admins a LEFT JOIN roles r ON a.role_id = r.id WHERE r.code = ? AND a.status = 1',
+        ['super_admin']
+      );
+      
+      // 如果当前要禁用的是最后一个启用的超级管理员，则不允许禁用
+      if (validStatus === 0 && enabledSuperAdmins[0].count <= 1 && admin.status === 1) {
+        return res.status(400).json(formatError('不能禁用最后一个启用的超级管理员', 400));
+      }
+    }
+    
+    // 更新状态
+    await pool.execute('UPDATE admins SET status = ? WHERE id = ?', [validStatus, id]);
+    
+    // 记录操作日志
+    const decoded = req.user;
+    await logAdminAction(decoded.id, decoded.username, validStatus === 1 ? '启用管理员' : '禁用管理员', '管理员', id, { status: validStatus });
+    
+    return res.json(formatSuccess(null, validStatus === 1 ? '管理员已启用' : '管理员已禁用'));
+    
+  } catch (error) {
+    console.error('更新管理员状态失败:', error);
+    return res.status(500).json(formatError('更新管理员状态失败，请稍后重试', 500));
   }
 });
 

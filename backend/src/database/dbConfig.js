@@ -37,8 +37,18 @@ async function query(sql, params = []) {
   try {
     const connection = await pool.getConnection();
     try {
-      const [results] = await connection.execute(sql, params);
-      return results;
+      // 确保params是数组类型
+      const queryParams = Array.isArray(params) ? params : [params];
+      
+      // 对于空数组参数，使用直接查询而不是execute
+      if (queryParams.length === 0) {
+        const [results] = await connection.query(sql);
+        return [results];
+      } else {
+        // 使用query替代execute，避免参数绑定问题
+        const [results] = await connection.query(sql, queryParams);
+        return [results];
+      }
     } finally {
       connection.release();
     }
@@ -70,7 +80,7 @@ async function transaction(callback) {
 // 执行事务中的SQL
 async function executeInTransaction(connection, sql, params = []) {
   const [results] = await connection.execute(sql, params);
-  return results;
+  return [results];
 }
 
 // 获取数据库信息
@@ -87,7 +97,7 @@ async function getDatabaseInfo() {
 // 检查数据库表是否存在
 async function tableExists(tableName) {
   try {
-    const result = await query(
+    const [result] = await query(
       'SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = ? AND table_name = ?',
       [process.env.DB_NAME, tableName]
     );

@@ -1,9 +1,7 @@
 // 缓存管理工具
 
-const redis = require('redis');
-const { promisify } = require('util');
+const { createClient } = require('redis');
 const { config } = require('dotenv');
-const { serverErrorResponse } = require('./responseFormatter');
 
 config();
 
@@ -12,25 +10,32 @@ const memoryCache = new Map();
 
 // Redis客户端配置
 let redisClient = null;
-let getAsync = null;
-let setAsync = null;
-let delAsync = null;
-let expireAsync = null;
+let isRedisConnected = false;
 
 // 初始化Redis连接
 const initRedisClient = async () => {
   try {
     if (process.env.REDIS_ENABLED === 'true') {
-      redisClient = redis.createClient({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: process.env.REDIS_PORT || 6379,
+      // 使用Redis 4.x的createClient方法，确保socket选项也正确设置主机和端口
+      const redisHost = process.env.REDIS_HOST || 'localhost';
+      const redisPort = process.env.REDIS_PORT || 6379;
+      
+      redisClient = createClient({
         password: process.env.REDIS_PASSWORD || undefined,
-        db: process.env.REDIS_DB || 0
+        database: parseInt(process.env.REDIS_DB || '0'),
+        socket: {
+          host: redisHost,
+          port: parseInt(redisPort),
+          connectTimeout: 10000 // 10秒连接超时
+        }
       });
+      
+      console.log(`Redis客户端配置: 主机=${redisHost}, 端口=${redisPort}, 数据库=${process.env.REDIS_DB}`);
 
       // 错误处理
       redisClient.on('error', (error) => {
         console.error('Redis Error:', error);
+        isRedisConnected = false;
       });
 
       // 连接成功
@@ -38,14 +43,22 @@ const initRedisClient = async () => {
         console.log('Redis connected successfully');
       });
 
-      // 转换回调风格API为Promise风格
-      getAsync = promisify(redisClient.get).bind(redisClient);
-      setAsync = promisify(redisClient.set).bind(redisClient);
-      delAsync = promisify(redisClient.del).bind(redisClient);
-      expireAsync = promisify(redisClient.expire).bind(redisClient);
+      redisClient.on('ready', () => {
+        console.log('Redis client is ready to use');
+        isRedisConnected = true;
+      });
+
+      redisClient.on('end', () => {
+        console.log('Redis connection ended');
+        isRedisConnected = false;
+      });
+
+      // 连接到Redis（Redis 4.x需要显式调用connect）
+      await redisClient.connect();
     }
   } catch (error) {
     console.error('Failed to initialize Redis client:', error);
+    isRedisConnected = false;
   }
 };
 
@@ -68,18 +81,34 @@ const cacheConfig = {
   systemConfigTTL: parseInt(process.env.CACHE_SYSTEM_CONFIG_TTL || '1800')
 };
 
+// 安全地执行Redis操作
+const safeRedisOperation = async (operation, fallbackValue = null) => {
+  if (!process.env.REDIS_ENABLED || !redisClient || !isRedisConnected) {
+    return fallbackValue;
+  }
+
+  try {
+    return await operation();
+  } catch (error) {
+    console.error('Redis operation failed:', error);
+    return fallbackValue;
+  }
+};
+
 // 获取缓存
 const getCache = async (key) => {
   try {
     // 优先从Redis获取
-    if (process.env.REDIS_ENABLED === 'true' && redisClient && getAsync) {
-      const redisValue = await getAsync(key);
-      if (redisValue) {
-        try {
-          return JSON.parse(redisValue);
-        } catch (e) {
-          return redisValue;
-        }
+    const redisValue = await safeRedisOperation(async () => {
+      const value = await redisClient.get(key);
+      return value;
+    });
+    
+    if (redisValue) {
+      try {
+        return JSON.parse(redisValue);
+      } catch (e) {
+        return redisValue;
       }
     }
 
@@ -109,12 +138,15 @@ const setCache = async (key, value, ttl = cacheConfig.defaultTTL) => {
     const serializedValue = JSON.stringify(value);
     
     // 设置Redis缓存
-    if (process.env.REDIS_ENABLED === 'true' && redisClient && setAsync) {
-      await setAsync(key, serializedValue);
+    await safeRedisOperation(async () => {
       if (ttl > 0) {
-        await expireAsync(key, ttl);
+        await redisClient.set(key, serializedValue, {
+          EX: ttl
+        });
+      } else {
+        await redisClient.set(key, serializedValue);
       }
-    }
+    });
 
     // 设置内存缓存
     if (ttl > 0) {
@@ -135,9 +167,9 @@ const setCache = async (key, value, ttl = cacheConfig.defaultTTL) => {
 const deleteCache = async (key) => {
   try {
     // 删除Redis缓存
-    if (process.env.REDIS_ENABLED === 'true' && redisClient && delAsync) {
-      await delAsync(key);
-    }
+    await safeRedisOperation(async () => {
+      await redisClient.del(key);
+    });
 
     // 删除内存缓存
     memoryCache.delete(key);
@@ -153,10 +185,9 @@ const deleteCache = async (key) => {
 const clearAllCache = async () => {
   try {
     // 清除Redis缓存
-    if (process.env.REDIS_ENABLED === 'true' && redisClient) {
-      const flushAllAsync = promisify(redisClient.flushAll).bind(redisClient);
-      await flushAllAsync();
-    }
+    await safeRedisOperation(async () => {
+      await redisClient.flushAll();
+    });
 
     // 清除内存缓存
     memoryCache.clear();
@@ -175,12 +206,13 @@ const getMultiCache = async (keys) => {
     const results = {};
 
     // 优先从Redis批量获取
-    if (process.env.REDIS_ENABLED === 'true' && redisClient) {
-      const mgetAsync = promisify(redisClient.mget).bind(redisClient);
-      const redisResults = await mgetAsync(keys);
-      
+    const redisResults = await safeRedisOperation(async () => {
+      return await redisClient.mGet(keys);
+    }, []);
+    
+    if (Array.isArray(redisResults)) {
       keys.forEach((key, index) => {
-        if (redisResults[index]) {
+        if (redisResults[index] !== null) {
           try {
             results[key] = JSON.parse(redisResults[index]);
           } catch (e) {
@@ -213,10 +245,11 @@ const getMultiCache = async (keys) => {
 const deleteMultiCache = async (keys) => {
   try {
     // 批量删除Redis缓存
-    if (process.env.REDIS_ENABLED === 'true' && redisClient) {
-      const delMultiAsync = promisify(redisClient.del).bind(redisClient);
-      await delMultiAsync(keys);
-    }
+    await safeRedisOperation(async () => {
+      if (keys.length > 0) {
+        await redisClient.del(keys);
+      }
+    });
 
     // 批量删除内存缓存
     keys.forEach(key => {
@@ -265,6 +298,7 @@ const getCacheStats = () => {
   const stats = {
     memoryCacheSize: memoryCache.size,
     redisEnabled: process.env.REDIS_ENABLED === 'true',
+    redisConnected: isRedisConnected,
     cacheConfig: {
       defaultTTL: cacheConfig.defaultTTL,
       noteContentTTL: cacheConfig.noteContentTTL,
@@ -338,6 +372,66 @@ const withCache = async (cacheKey, ttl, queryFn) => {
   }
 };
 
+// 搜索匹配模式的缓存键（使用SCAN而不是KEYS，更安全）
+const scanCacheKeys = async (pattern) => {
+  try {
+    const keys = [];
+    
+    // 仅在Redis启用且连接时执行
+    if (process.env.REDIS_ENABLED === 'true' && redisClient && isRedisConnected) {
+      let cursor = '0';
+      
+      do {
+        const reply = await redisClient.scan(cursor, {
+          MATCH: pattern,
+          COUNT: 100
+        });
+        
+        cursor = reply.cursor;
+        keys.push(...reply.keys);
+      } while (cursor !== '0' && cursor !== 0);
+    }
+    
+    // 同时检查内存缓存中的匹配键
+    const memoryKeys = [];
+    for (const key of memoryCache.keys()) {
+      if (new RegExp(pattern.replace(/\*/g, '.*')).test(key)) {
+        memoryKeys.push(key);
+      }
+    }
+    
+    return {
+      redisKeys: keys,
+      memoryKeys: memoryKeys,
+      allKeys: [...new Set([...keys, ...memoryKeys])]
+    };
+  } catch (error) {
+    console.error('Error scanning cache keys:', error);
+    return {
+      redisKeys: [],
+      memoryKeys: [],
+      allKeys: []
+    };
+  }
+};
+
+// 清除匹配模式的缓存
+const clearPatternCache = async (pattern) => {
+  try {
+    const { allKeys } = await scanCacheKeys(pattern);
+    
+    if (allKeys.length > 0) {
+      await deleteMultiCache(allKeys);
+      console.log(`Cleared ${allKeys.length} cache items matching pattern: ${pattern}`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error clearing pattern cache:', error);
+    return false;
+  }
+};
+
 module.exports = {
   initRedisClient,
   getCache,
@@ -353,5 +447,7 @@ module.exports = {
   getCacheStats,
   cleanupExpiredCache,
   withCache,
-  generateCacheKey
+  generateCacheKey,
+  scanCacheKeys,
+  clearPatternCache
 };

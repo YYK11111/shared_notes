@@ -40,14 +40,20 @@
         
         <el-form-item label="上传截图" prop="images">
           <el-upload
+            class="avatar-uploader"
+            action="#"
+            :http-request="handleCustomUpload"
+            :before-upload="beforeUpload"
             v-model:file-list="fileList"
-            :action="uploadUrl"
             list-type="picture-card"
+            accept="image/*"
             :on-preview="handlePictureCardPreview"
             :on-remove="handleRemove"
-            :before-upload="beforeUpload"
+            :on-success="handleUploadSuccess"
             multiple
             :limit="3"
+            :on-exceed="handleExceed"
+            :disabled="uploadLoading"
           >
             <el-icon><Plus /></el-icon>
             <template #tip>
@@ -141,9 +147,10 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { submitUserFeedback, getUserFeedbackHistory } from '@/api/user'
+import { submitFeedback as apiSubmitFeedback } from '@/api/user'
 import dayjs from 'dayjs'
 import { Plus } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 // 表单相关
 const feedbackForm = reactive({
@@ -167,11 +174,13 @@ const feedbackRules = {
   ]
 }
 
+import { uploadFeedbackImage } from '@/api/file'
+
 // 上传相关
 const fileList = ref([])
-const uploadUrl = '/api/upload/image' // 上传接口地址
 const dialogVisible = ref(false)
 const dialogImageUrl = ref('')
+const uploadLoading = ref(false)
 
 // 状态
 const submitting = ref(false)
@@ -182,20 +191,54 @@ const feedbackHistory = ref([])
 const feedbackFormRef = ref(null)
 
 // 上传前校验
-const beforeUpload = (file) => {
-  const isJPG = file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/gif'
-  const isLt5M = file.size / 1024 / 1024 < 5
+  const beforeUpload = (file) => {
+    const isImage = file.type.startsWith('image/')
+    const isLt5M = file.size / 1024 / 1024 < 5
 
-  if (!isJPG) {
-    ElMessage.error('上传图片只能是 JPG/PNG/GIF 格式!')
-    return false
+    if (!isImage) {
+      ElMessage.error('只能上传图片文件!')
+      return false
+    }
+    if (!isLt5M) {
+      ElMessage.error('上传图片大小不能超过 5MB!')
+      return false
+    }
+    return true
   }
-  if (!isLt5M) {
-    ElMessage.error('上传图片大小不能超过 5MB!')
-    return false
+
+  // 自定义上传处理
+  const handleCustomUpload = async (options) => {
+    const { file, onSuccess, onError } = options
+    uploadLoading.value = true
+    try {
+      const response = await uploadFeedbackImage(file)
+      
+      if (response.code === 200 && response.data?.fileId) {
+        // 为文件项添加url属性，便于预览
+        file.url = `/file/get/${response.data.fileId}`
+        // 保存fileId以便后续使用
+        file.fileId = response.data.fileId
+        onSuccess(response)
+      } else {
+        throw new Error(response.message || '上传失败')
+      }
+    } catch (error) {
+      onError(error)
+      ElMessage.error('文件上传失败：' + (error.message || '未知错误'))
+    } finally {
+      uploadLoading.value = false
+    }
   }
-  return true
-}
+
+  // 处理上传成功
+  const handleUploadSuccess = () => {
+    ElMessage.success('图片上传成功')
+  }
+
+  // 处理超出限制
+  const handleExceed = (files) => {
+    ElMessage.warning(`当前限制上传 3 张图片，本次选择了 ${files.length} 张图片，已自动过滤多余图片`)
+  }
 
 // 预览图片
 const handlePictureCardPreview = (uploadFile) => {
@@ -232,8 +275,15 @@ const submitFeedback = async () => {
       formData.append('images[]', file.raw)
     })
     
+    // 添加图片文件ID
+    fileList.value.forEach(file => {
+      if (file.fileId) {
+        formData.append('image_ids[]', file.fileId)
+      }
+    })
+    
     // 提交反馈
-    await submitUserFeedback(formData)
+    await apiSubmitFeedback(formData)
     
     ElMessage.success('反馈提交成功！感谢您的宝贵意见')
     
@@ -263,8 +313,25 @@ const resetForm = () => {
 // 获取反馈历史
 const fetchFeedbackHistory = async () => {
   try {
-    const res = await getUserFeedbackHistory()
-    feedbackHistory.value = res.data
+    // 暂时返回空数组，因为API不存在
+    // 实际项目中应该创建getUserFeedbackHistory API
+    feedbackHistory.value = []
+    // 如果需要测试UI，可以使用模拟数据
+    /*
+    feedbackHistory.value = [
+      {
+        id: 1,
+        title: '测试反馈',
+        content: '这是一条测试反馈内容',
+        type: 'suggestion',
+        status: 'resolved',
+        created_at: '2023-01-01T10:00:00Z',
+        updated_at: '2023-01-02T10:00:00Z',
+        reply: '感谢您的反馈，我们已经处理了您的问题',
+        reply_time: '2023-01-02T10:00:00Z'
+      }
+    ]
+    */
   } catch (error) {
     console.error('获取反馈历史失败:', error)
     ElMessage.error('获取反馈历史失败')

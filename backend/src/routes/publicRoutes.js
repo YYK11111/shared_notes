@@ -5,17 +5,18 @@ const { logUser } = require('../utils/logger');
 const { formatDateTime, getRelativeTime } = require('../utils/dateTime');
 const { cleanXSS } = require('../utils/security');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
+const searchService = require('../services/searchService');
 
 // 获取首页数据
 router.get('/home', async (req, res) => {
   try {
-    const [recommendedNotes] = await pool.execute(`
+    const [recommendNotes] = await pool.execute(`
       SELECT n.*, GROUP_CONCAT(c.name) as categories 
       FROM notes n 
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.status = 1 AND n.is_home_recommend = 1 
-      GROUP BY n.id 
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at 
       ORDER BY n.created_at DESC 
       LIMIT 10
     `);
@@ -26,7 +27,7 @@ router.get('/home', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.status = 1 AND n.is_week_selection = 1 
-      GROUP BY n.id 
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at 
       ORDER BY n.created_at DESC 
       LIMIT 8
     `);
@@ -37,7 +38,7 @@ router.get('/home', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.status = 1 
-      GROUP BY n.id 
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at 
       ORDER BY n.created_at DESC 
       LIMIT 10
     `);
@@ -48,7 +49,7 @@ router.get('/home', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.status = 1 
-      GROUP BY n.id 
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at 
       ORDER BY n.view_count DESC 
       LIMIT 10
     `);
@@ -59,7 +60,7 @@ router.get('/home', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.status = 1 AND n.is_month_recommend = 1 
-      GROUP BY n.id 
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at 
       ORDER BY n.created_at DESC 
       LIMIT 12
     `);
@@ -128,7 +129,7 @@ router.get('/categories/:categoryId/notes', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.status = 1 AND nc.category_id = ? 
-      GROUP BY n.id 
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at 
       ORDER BY n.is_top DESC, n.created_at DESC 
       LIMIT ?, ?
     `, [categoryId, offset, pageSize]);
@@ -167,7 +168,7 @@ router.get('/notes/:id', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       LEFT JOIN categories c ON nc.category_id = c.id 
       WHERE n.id = ? AND n.status = 1 
-      GROUP BY n.id
+      GROUP BY n.id, n.title, n.content, n.status, n.view_count, n.like_count, n.comment_count, n.is_top, n.is_home_recommend, n.is_week_selection, n.is_month_recommend, n.cover_image, n.created_at, n.updated_at
     `, [id]);
 
     if (notes.length === 0) {
@@ -186,7 +187,6 @@ router.get('/notes/:id', async (req, res) => {
       LEFT JOIN note_categories nc ON n.id = nc.note_id 
       WHERE n.id != ? AND n.status = 1 
       AND nc.category_id IN (SELECT category_id FROM note_categories WHERE note_id = ?) 
-      GROUP BY n.id 
       ORDER BY n.view_count DESC 
       LIMIT 5
     `, [id, id]);
@@ -204,11 +204,10 @@ router.get('/notes/:id', async (req, res) => {
   }
 });
 
-// 搜索笔记
+// 搜索笔记接口
 router.get('/search', async (req, res) => {
   try {
-    const { keyword, page = 1, pageSize = 10 } = req.query;
-    const offset = (page - 1) * pageSize;
+    const { keyword, page = 1, pageSize = 10, sortBy = 'relevance', categoryIds, timeRange } = req.query;
 
     if (!keyword || keyword.trim() === '') {
       return errorResponse(res, '搜索关键词不能为空', 400);
@@ -216,44 +215,24 @@ router.get('/search', async (req, res) => {
 
     const cleanKeyword = cleanXSS(keyword.trim());
 
-    // 记录搜索日志
-    await pool.execute(
-      'INSERT INTO search_logs (keyword, search_count) VALUES (?, 1) ON DUPLICATE KEY UPDATE search_count = search_count + 1, last_search_time = CURRENT_TIMESTAMP',
-      [cleanKeyword]
-    );
-
-    // 执行搜索
-    const [notes] = await pool.execute(`
-      SELECT n.*, GROUP_CONCAT(c.name) as categories 
-      FROM notes n 
-      LEFT JOIN note_categories nc ON n.id = nc.note_id 
-      LEFT JOIN categories c ON nc.category_id = c.id 
-      WHERE n.status = 1 
-      AND (n.title LIKE ? OR n.content LIKE ?) 
-      GROUP BY n.id 
-      ORDER BY n.is_top DESC, n.view_count DESC 
-      LIMIT ?, ?
-    `, [`%${cleanKeyword}%`, `%${cleanKeyword}%`, offset, pageSize]);
-
-    const [[countResult]] = await pool.execute(`
-      SELECT COUNT(*) as total FROM notes 
-      WHERE status = 1 
-      AND (title LIKE ? OR content LIKE ?)
-    `, [`%${cleanKeyword}%`, `%${cleanKeyword}%`]);
+    // 使用搜索服务执行搜索
+    const searchResult = await searchService.search({
+      keyword: cleanKeyword,
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      sortBy,
+      categoryIds,
+      timeRange,
+      useIndex: true // 使用搜索索引
+    });
 
     // 记录用户活动
     await logUser(null, `search_notes_${cleanKeyword}`, { ip: req.ip, userAgent: req.headers['user-agent'] });
 
-    return successResponse(res, {
-      list: notes,
-      total: countResult.total,
-      page: parseInt(page),
-      pageSize: parseInt(pageSize),
-      totalPages: Math.ceil(countResult.total / pageSize)
-    });
+    return successResponse(res, searchResult);
   } catch (error) {
     console.error('搜索笔记失败:', error);
-    return errorResponse(res, '搜索笔记失败');
+    return errorResponse(res, '系统暂时无法访问，请稍后重试');
   }
 });
 

@@ -132,49 +132,54 @@
       </el-card>
     </div>
     
-    <!-- 系统信息 -->
-    <el-card class="system-info-card">
-      <template #header>
-        <h3 class="section-title">系统信息</h3>
-      </template>
-      <div class="system-info-grid">
-        <div class="info-item">
-          <span class="info-label">系统版本：</span>
-          <span class="info-value">{{ systemInfo.version }}</span>
+    <!-- 系统信息 - 增强版本 -->
+    <div v-if="systemInfoVisible">
+      <el-card class="system-info-card">
+        <template #header>
+          <h3 class="section-title">系统信息</h3>
+        </template>
+        <div class="system-info-grid">
+          <div class="info-item">
+            <span class="info-label">系统版本：</span>
+            <span class="info-value">{{ systemInfo.version }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">运行时间：</span>
+            <span class="info-value">{{ systemInfo.uptime }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">服务器IP：</span>
+            <span class="info-value">{{ systemInfo.serverIp }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">当前用户：</span>
+            <span class="info-value">{{ systemInfo.currentUser }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">登录时间：</span>
+            <span class="info-value">{{ formatDate(systemInfo.loginTime) }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">浏览器：</span>
+            <span class="info-value">{{ systemInfo.browser }}</span>
+          </div>
         </div>
-        <div class="info-item">
-          <span class="info-label">运行时间：</span>
-          <span class="info-value">{{ systemInfo.uptime }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">服务器IP：</span>
-          <span class="info-value">{{ systemInfo.serverIp }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">当前用户：</span>
-          <span class="info-value">{{ systemInfo.currentUser }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">登录时间：</span>
-          <span class="info-value">{{ formatDate(systemInfo.loginTime) }}</span>
-        </div>
-        <div class="info-item">
-          <span class="info-label">浏览器：</span>
-          <span class="info-value">{{ systemInfo.browser }}</span>
-        </div>
-      </div>
-    </el-card>
+        
+
+      </el-card>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useAuthStore } from '@/store/auth'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
 import Chart from 'chart.js/auto'
 import { Document, Collection, User, Message, Edit, Check, Delete } from '@element-plus/icons-vue'
+import { getSystemInfo } from '@/api/config'
 
 // 使用插件
 dayjs.extend(relativeTime)
@@ -220,15 +225,67 @@ const todos = ref([
 
 const checkedTodos = ref(todos.value.filter(todo => todo.completed).map(todo => todo.id))
 
-// 系统信息
-const systemInfo = ref({
-  version: '1.0.0',
-  uptime: '7天12小时30分钟',
-  serverIp: '192.168.1.100',
+// 系统信息 - 使用reactive创建响应式对象，确保所有嵌套属性都能被响应式追踪
+const systemInfo = reactive({
+  version: '--',
+  uptime: '--',
+  serverIp: '--',
   currentUser: authStore.userInfo?.username || '管理员',
   loginTime: new Date().toISOString(),
-  browser: navigator.userAgent.match(/\(([^)]+)\)/)[1]
+  browser: navigator.userAgent.match(/\(([^)]+)\)/)?.[1] || '--'
 })
+
+// 添加一个可见性调试标志
+const systemInfoVisible = ref(true)
+console.log('Dashboard组件初始化 - systemInfo:', systemInfo)
+
+// 获取真实系统信息
+const fetchSystemInfo = async () => {
+  try {
+    console.log('开始获取系统信息...')
+    const response = await getSystemInfo()
+    console.log('系统信息API返回数据:', response)
+    
+    if (response.code === 200 && response.data) {
+      // 更新系统信息 - 使用Vue.set确保响应式更新
+      console.log('准备更新systemInfo:', response.data)
+      
+      // 逐个更新属性，确保响应式系统正确追踪变化
+      systemInfo.version = response.data.nodeVersion || '--'
+      systemInfo.uptime = formatUptime(response.data.uptime) || '--'
+      systemInfo.serverIp = `${response.data.platform} (${response.data.architecture})` || '--'
+      systemInfo.currentUser = authStore.userInfo?.username || '管理员'
+      systemInfo.loginTime = new Date().toISOString()
+      systemInfo.browser = navigator.userAgent.match(/\(([^)]+)\)/)?.[1] || '--'
+      
+      console.log('systemInfo更新后的值:', systemInfo)
+      
+      // 强制刷新UI
+      nextTick(() => {
+        console.log('UI强制刷新后检查系统信息可见性')
+      })
+    }
+  } catch (error) {
+    console.error('获取系统信息失败:', error)
+  }
+}
+
+// 格式化运行时间
+const formatUptime = (seconds) => {
+  if (!seconds) return '--'
+  
+  const days = Math.floor(seconds / (24 * 60 * 60))
+  const hours = Math.floor((seconds % (24 * 60 * 60)) / (60 * 60))
+  const minutes = Math.floor((seconds % (60 * 60)) / 60)
+  
+  if (days > 0) {
+    return `${days}天${hours}小时${minutes}分钟`
+  } else if (hours > 0) {
+    return `${hours}小时${minutes}分钟`
+  } else {
+    return `${minutes}分钟`
+  }
+}
 
 // 初始化图表
 const initCharts = async () => {
@@ -404,6 +461,7 @@ const addTodo = () => {
 // 页面加载时初始化
 onMounted(() => {
   initCharts()
+  fetchSystemInfo()
 })
 </script>
 

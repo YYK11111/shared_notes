@@ -31,7 +31,7 @@
               <el-menu-item index="/admin/categories">分类管理</el-menu-item>
             </el-sub-menu>
             
-            <el-menu-item index="feedback">
+            <el-menu-item index="feedbacks">
               <el-icon><Message /></el-icon>
               <span>反馈管理</span>
             </el-menu-item>
@@ -43,9 +43,16 @@
               </template>
               <el-menu-item index="admins">管理员管理</el-menu-item>
               <el-menu-item index="roles">角色管理</el-menu-item>
-              <el-menu-item index="config">系统配置</el-menu-item>
               <el-menu-item index="routes">路由权限</el-menu-item>
+              <el-menu-item index="/admin/sensitive-words">敏感词管理</el-menu-item>
             </el-sub-menu>
+            
+            <el-menu-item index="/admin/config">              <el-icon><Setting /></el-icon>              <span>系统配置</span>            </el-menu-item>
+            
+            <el-menu-item index="/admin/search-management">
+              <el-icon><Search /></el-icon>
+              <span>搜索管理</span>
+            </el-menu-item>
           </el-menu>
         </nav>
       </aside>
