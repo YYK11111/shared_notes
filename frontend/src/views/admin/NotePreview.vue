@@ -224,7 +224,7 @@ const createLineNumbers = (code) => {
 };
 
 // 初始化复制功能
-const initCopy功能 = (el) => {
+const initCopyFeature = (el) => {
   const copyButtons = el.querySelectorAll('.copy-btn');
   copyButtons.forEach(btn => {
     // 先销毁已存在的clipboard实例，防止重复绑定
@@ -232,8 +232,9 @@ const initCopy功能 = (el) => {
       btn._clipboard.destroy();
     }
     
+    // 修改选择器以匹配新结构
     const clipboard = new Clipboard(btn, {
-      text: () => btn.nextElementSibling.nextElementSibling.textContent
+      text: () => btn.nextElementSibling.nextElementSibling.querySelector('code').textContent
     });
     
     // 存储实例用于后续销毁
@@ -267,40 +268,38 @@ const processHighlight = (el) => {
       pre.appendChild(code);
     }
     
-    // 保存原始类名（可能包含语言信息）
+    // 保存原始类名和内容
     const originalClasses = code.className;
+    const originalContent = code.textContent;
     
     // 应用高亮
     hljs.highlightElement(code);
     
-    // 生成行号
-    const lineNumbers = createLineNumbers(code.textContent);
+    // 生成行号 - 修改行号生成逻辑
+    const lines = originalContent.split('\n');
+    let lineNumbersHTML = '';
+    lines.forEach((_, index) => {
+      lineNumbersHTML += `<div class="line-number">${index + 1}</div>`;
+    });
     
     // 创建复制按钮
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
     copyBtn.textContent = '📋 复制';
     
-    // 创建行号容器
-    const lineNumbersContainer = document.createElement('div');
-    lineNumbersContainer.className = 'line-numbers';
-    lineNumbersContainer.innerHTML = lineNumbers;
-    
-    // 重构代码块结构
+    // 重构代码块结构 - 关键修改
     pre.className = 'code-block-wrapper';
-    pre.innerHTML = '';
-    pre.appendChild(copyBtn);
-    pre.appendChild(lineNumbersContainer);
-    
-    // 重新创建code元素并应用原始类名
-    const newCode = document.createElement('code');
-    newCode.className = originalClasses;
-    newCode.innerHTML = code.innerHTML; // 使用高亮后的内容
-    pre.appendChild(newCode);
+    pre.innerHTML = `
+      <div class="code-container">
+        ${copyBtn.outerHTML}
+        <div class="line-numbers-container">${lineNumbersHTML}</div>
+        <div class="code-content"><code class="${originalClasses}">${code.innerHTML}</code></div>
+      </div>
+    `;
   });
   
   // 初始化复制功能
-  initCopy功能(el);
+  initCopyFeature(el);
 };
 
 // 代码高亮指令
@@ -607,52 +606,68 @@ onMounted(async () => {
   height: 300px;
 }
 
-/* 修改代码块样式 */
+/* 完全重构代码块样式 */
 :deep(.code-block-wrapper) {
   position: relative;
   margin: 1rem 0 !important;
   border-radius: 6px;
   overflow: hidden;
-  display: flex; /* 使用flex布局确保对齐 */
 }
 
-/* 行号容器样式 */
-:deep(.line-numbers) {
-  flex: 0 0 3rem; /* 固定宽度 */
+/* 代码容器 - 关键：使用相对定位作为滚动参考 */
+:deep(.code-container) {
+  position: relative;
+  display: flex;
+}
+
+/* 行号容器 - 关键：固定定位，相对于父容器 */
+:deep(.line-numbers-container) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3rem;
   padding: 1rem 0.5rem;
   background: rgba(0, 0, 0, 0.05);
   text-align: right;
   user-select: none;
   border-right: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden; /* 防止行号溢出 */
 }
 
-/* 行号样式 */
+/* 行号样式 - 关键：设置固定高度与代码行匹配 */
 :deep(.line-number) {
-  display: block;
   color: #999;
   font-size: 0.875rem;
-  line-height: 1.5; /* 与代码行高保持一致 */
-  font-family: monospace; /* 使用等宽字体 */
+  line-height: 1.5; /* 必须与代码行高完全一致 */
+  height: 1.5em; /* 强制行高匹配 */
+  font-family: monospace;
 }
 
-/* 代码内容样式 */
-:deep(.code-block-wrapper code) {
-  flex: 1; /* 占据剩余空间 */
+/* 代码内容区域 - 关键：设置左边距为行号宽度 */
+:deep(.code-content) {
+  flex: 1;
+  margin-left: 3rem; /* 与行号容器宽度一致 */
+  overflow-x: auto; /* 仅代码区域横向滚动 */
+}
+
+/* 代码元素样式 - 确保与行号对齐 */
+:deep(.code-content code) {
   display: block;
   padding: 1rem !important;
-  overflow-x: auto;
-  line-height: 1.5; /* 与行号行高保持一致 */
-  font-family: monospace; /* 使用等宽字体 */
-  white-space: pre; /* 保留原始格式 */
-  margin: 0; /* 清除默认边距 */
+  line-height: 1.5; /* 必须与行号行高完全一致 */
+  font-family: monospace;
+  white-space: pre;
+  margin: 0;
+  min-height: 100%; /* 确保高度匹配 */
 }
 
-/* 复制按钮样式 */
+/* 调整复制按钮位置 */
 :deep(.copy-btn) {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
-  z-index: 10; /* 确保按钮在最上层 */
+  z-index: 10;
   padding: 0.25rem 0.5rem;
   background: rgba(0, 0, 0, 0.5);
   color: white;
