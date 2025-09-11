@@ -27,6 +27,15 @@ export const updateAdmin = (id, data) => {
   })
 }
 
+// 更新管理员状态
+export const updateAdminStatus = (id, data) => {
+  return request({
+    url: `/admin/admins/${id}/status`,
+    method: 'put',
+    data
+  })
+}
+
 // 删除管理员
 export const deleteAdmin = (id) => {
   return request({

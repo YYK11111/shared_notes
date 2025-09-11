@@ -15,10 +15,8 @@
     "dayjs": "^1.11.10",
     "dompurify": "^3.0.8",
     "element-plus": "^2.11.2",
-    "highlight.js": "^11.11.1",
     "lodash": "^4.17.21",
-    "marked": "^11.1.1",
-    "mavon-editor": "^2.10.4",
+    "mavon-editor": "^3.0.2",
     "pinia": "^2.1.7",
     "vue": "^3.3.11",
     "vue-router": "^4.2.5"

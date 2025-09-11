@@ -59,6 +59,11 @@ export const backupSystem = () => {
   })
 }
 
+// 创建备份（为了兼容旧代码）
+export const createBackup = () => {
+  return backupSystem()
+}
+
 // 系统恢复
 export const restoreSystem = (data) => {
   return request({
@@ -68,10 +73,23 @@ export const restoreSystem = (data) => {
   })
 }
 
+// 从备份恢复（为了兼容旧代码）
+export const restoreFromBackup = (id) => {
+  return restoreSystem({ backup_id: id })
+}
+
 // 获取备份列表
 export const getBackupList = () => {
   return request({
     url: '/config/backups',
     method: 'get'
+  })
+}
+
+// 删除备份
+export const deleteBackup = (id) => {
+  return request({
+    url: `/config/backups/${id}`,
+    method: 'delete'
   })
 }

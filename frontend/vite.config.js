@@ -24,7 +24,9 @@ export default defineConfig({
         IconsResolver({
           enabledCollections: ['ep']
         })
-      ]
+      ],
+      // 修复：正确排除mavon-editor，避免自动插件处理导致的兼容性问题
+      exclude: [/mavon-editor/]
     }),
     Icons({
       autoInstall: true
@@ -45,13 +47,14 @@ export default defineConfig({
     }
   },
   server: {
-    port: 8080,
-    strictPort: false,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
-      }
+      port: 8080,
+      strictPort: true, // 强制在8080端口启动
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true
+        }
+      },
+      open: true
     }
-  }
 })
