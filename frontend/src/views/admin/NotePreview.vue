@@ -134,30 +134,30 @@ const loadTheme = async (themeName) => {
       }
     });
     
-    // 关键修复：使用正确的路径格式
-    // 对于Vite项目，应使用动态导入获取正确路径
-    const module = await import(`highlight.js/styles/${themeName}.css`);
-    
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = module.default; // 这是Vite处理后的正确路径
-    link.dataset.theme = 'highlight'; // 添加标识便于后续移除
-    
-    // 添加错误处理
-    link.onerror = (error) => {
-      console.error('主题文件加载失败:', error);
-      ElMessage.error(`主题文件加载失败: ${themeName}`);
-    };
-    
-    document.head.appendChild(link);
-    
-    // 延迟确认加载成功
-    setTimeout(() => {
-      console.log(`主题加载成功: ${themeName}`);
-      ElMessage.success(`已切换至${themeName}主题`);
-    }, 200);
-    
-    return true;
+    // 使用Promise确保CSS文件完全加载后再返回
+    return new Promise((resolve, reject) => {
+      // 使用CDN路径加载CSS文件，确保文件可访问
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/${themeName}.css`;
+      link.dataset.theme = 'highlight'; // 添加标识便于后续移除
+      
+      // 添加加载成功处理
+      link.onload = () => {
+        console.log(`主题加载成功: ${themeName}`);
+        ElMessage.success(`已切换至${themeName}主题`);
+        resolve(true);
+      };
+      
+      // 添加错误处理
+      link.onerror = (error) => {
+        console.error('主题文件加载失败:', error);
+        ElMessage.error(`主题文件加载失败: ${themeName}`);
+        reject(error);
+      };
+      
+      document.head.appendChild(link);
+    });
   } catch (error) {
     console.error('加载主题失败:', error);
     ElMessage.error(`切换主题失败: ${error.message}`);
@@ -168,12 +168,22 @@ const loadTheme = async (themeName) => {
 // 验证主题文件是否存在
 const validateTheme = async (themeName) => {
   try {
-    // 尝试直接导入主题文件以验证其存在性
-    await import(`highlight.js/styles/${themeName}.css`);
+    // 尝试直接导入主题文件以验证其存在性，添加@vite-ignore注释抑制警告
+    await import(/* @vite-ignore */ `highlight.js/styles/${themeName}.css`);
     return true;
   } catch (error) {
     return false;
   }
+};
+
+// HTML转义函数，用于解决安全警告
+const escapeHtml = (html) => {
+  return html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 };
 
 // 切换主题方法
@@ -185,16 +195,18 @@ const changeTheme = async (theme) => {
     if (noteBody) {
       const scrollTop = noteBody.scrollTop;
       
-      // 关键修复：先清除所有现有高亮样式
-      const codeBlocks = noteBody.querySelectorAll('pre code');
-      codeBlocks.forEach(block => {
-        block.classList.remove(...Array.from(block.classList).filter(c => c.startsWith('hljs')));
+      // 移除所有现有高亮类
+      noteBody.querySelectorAll('pre code').forEach(block => {
+        block.className = block.className.replace(/hljs\s+/, '');
       });
       
-      // 重新初始化高亮
-      hljs.initHighlighting(); // 全局重新初始化
-      processHighlight(noteBody); // 重新处理自定义样式
+      // 重新应用高亮
+      noteBody.querySelectorAll('pre code').forEach(block => {
+        hljs.highlightElement(block);
+      });
       
+      // 重新处理代码块结构
+      processHighlight(noteBody);
       noteBody.scrollTop = scrollTop;
     }
   }
@@ -241,25 +253,50 @@ const initCopy功能 = (el) => {
 
 // 处理代码高亮的核心函数
 const processHighlight = (el) => {
-  const blocks = el.querySelectorAll('pre code');
+  // 选择所有pre标签，这些是代码块的容器
+  const preBlocks = el.querySelectorAll('pre');
   
-  blocks.forEach(block => {
-    // 高亮代码
-    hljs.highlightElement(block);
+  preBlocks.forEach(pre => {
+    // 找到内部的code元素
+    let code = pre.querySelector('code');
+    if (!code) {
+      // 如果没有code元素，创建一个
+      code = document.createElement('code');
+      code.textContent = pre.textContent;
+      pre.innerHTML = '';
+      pre.appendChild(code);
+    }
     
-    // 获取原始代码
-    const code = block.textContent;
+    // 保存原始类名（可能包含语言信息）
+    const originalClasses = code.className;
+    
+    // 应用高亮
+    hljs.highlightElement(code);
     
     // 生成行号
-    const lineNumbers = createLineNumbers(code);
+    const lineNumbers = createLineNumbers(code.textContent);
     
     // 创建复制按钮
-    const copyBtn = '<button class="copy-btn">📋 复制</button>';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = '📋 复制';
+    
+    // 创建行号容器
+    const lineNumbersContainer = document.createElement('div');
+    lineNumbersContainer.className = 'line-numbers';
+    lineNumbersContainer.innerHTML = lineNumbers;
     
     // 重构代码块结构
-    const pre = block.parentElement;
-    pre.classList.add('code-block-wrapper');
-    pre.innerHTML = `${copyBtn}${lineNumbers}<code class="${block.className}">${block.innerHTML}</code>`;
+    pre.className = 'code-block-wrapper';
+    pre.innerHTML = '';
+    pre.appendChild(copyBtn);
+    pre.appendChild(lineNumbersContainer);
+    
+    // 重新创建code元素并应用原始类名
+    const newCode = document.createElement('code');
+    newCode.className = originalClasses;
+    newCode.innerHTML = code.innerHTML; // 使用高亮后的内容
+    pre.appendChild(newCode);
   });
   
   // 初始化复制功能
@@ -378,15 +415,6 @@ const getStatusType = (status) => {
 }
 
 onMounted(async () => {
-  // 验证主题文件是否存在
-  for (const theme of themes) {
-    try {
-      await import(`highlight.js/styles/${theme.value}.css`);
-    } catch (error) {
-      console.warn(`主题 ${theme.label} (${theme.value}) 不存在或无法加载`);
-    }
-  }
-  
   // 初始加载选中的主题
   await loadTheme(selectedTheme.value);
   
@@ -579,20 +607,52 @@ onMounted(async () => {
   height: 300px;
 }
 
-/* 代码块样式 */
+/* 修改代码块样式 */
 :deep(.code-block-wrapper) {
   position: relative;
-  padding-top: 2rem !important;
-  padding-bottom: 1rem !important;
   margin: 1rem 0 !important;
   border-radius: 6px;
   overflow: hidden;
+  display: flex; /* 使用flex布局确保对齐 */
 }
 
+/* 行号容器样式 */
+:deep(.line-numbers) {
+  flex: 0 0 3rem; /* 固定宽度 */
+  padding: 1rem 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* 行号样式 */
+:deep(.line-number) {
+  display: block;
+  color: #999;
+  font-size: 0.875rem;
+  line-height: 1.5; /* 与代码行高保持一致 */
+  font-family: monospace; /* 使用等宽字体 */
+}
+
+/* 代码内容样式 */
+:deep(.code-block-wrapper code) {
+  flex: 1; /* 占据剩余空间 */
+  display: block;
+  padding: 1rem !important;
+  overflow-x: auto;
+  line-height: 1.5; /* 与行号行高保持一致 */
+  font-family: monospace; /* 使用等宽字体 */
+  white-space: pre; /* 保留原始格式 */
+  margin: 0; /* 清除默认边距 */
+}
+
+/* 复制按钮样式 */
 :deep(.copy-btn) {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
+  z-index: 10; /* 确保按钮在最上层 */
   padding: 0.25rem 0.5rem;
   background: rgba(0, 0, 0, 0.5);
   color: white;
@@ -605,32 +665,6 @@ onMounted(async () => {
 
 :deep(.copy-btn:hover) {
   background: rgba(0, 0, 0, 0.7);
-}
-
-:deep(.line-numbers) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  padding-top: 2rem;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-  background: rgba(0, 0, 0, 0.1);
-  text-align: right;
-  user-select: none;
-}
-
-:deep(.line-number) {
-  display: block;
-  color: #999;
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-:deep(.code-block-wrapper code) {
-  display: block;
-  padding-left: 3rem !important;
-  overflow-x: auto;
 }
 
 /* 表格样式 */
