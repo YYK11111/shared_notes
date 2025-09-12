@@ -6,24 +6,24 @@ import request from '@/utils/request'
  * @returns {Promise<string>} - 返回图片的Data URL
  */
 export const getFileDataUrl = async (fileId) => {
-  // 调用带/api前缀的接口路径
-  const apiUrl = `/api/file/get/${fileId}`;
-  
-  // 发送GET请求获取文件数据
-  const response = await fetch(apiUrl, {
-    method: 'GET',
+  // 设置响应类型为blob以便处理二进制数据
+  const config = {
+    responseType: 'blob',
     headers: {
       'Accept': 'image/*'
     }
+  };
+  
+  // 使用request方法发送GET请求获取文件数据
+  // 当responseType为blob时，request返回的是整个response对象
+  const response = await request({
+    url: `/file/get/${fileId}`,
+    method: 'get',
+    ...config
   });
   
-  // 检查响应状态
-  if (!response.ok) {
-    throw new Error(`获取文件失败: ${response.status}`);
-  }
-  
-  // 将响应转换为Blob对象
-  const blob = await response.blob();
+  // 从response对象中获取blob数据
+  const blob = response.data;
   
   // 创建FileReader读取Blob并转换为Data URL
   return new Promise((resolve, reject) => {

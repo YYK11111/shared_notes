@@ -6,6 +6,20 @@ async function createTables() {
     
     console.log('开始创建数据库表结构...');
     
+    // 创建文件表 (如果不存在)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS files (
+        file_id VARCHAR(50) NOT NULL PRIMARY KEY,
+        file_name VARCHAR(255) NOT NULL,
+        file_type VARCHAR(50) NOT NULL,
+        file_size INT NOT NULL,
+        storage_path VARCHAR(255) NOT NULL,
+        business_type VARCHAR(50) DEFAULT 'other',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    
     // 创建管理员表
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS admins (
@@ -266,10 +280,36 @@ async function initData() {
   }
 }
 
+// 升级文件表，添加file_hash字段
+async function upgradeFilesTable() {
+  try {
+    const connection = await pool.getConnection();
+    
+    console.log('开始升级files表，添加file_hash字段...');
+    
+    // 检查是否已存在file_hash字段
+    try {
+      await connection.execute('SELECT file_hash FROM files LIMIT 1');
+      console.log('files表已包含file_hash字段，无需升级');
+    } catch (error) {
+      // 字段不存在，添加file_hash字段
+      await connection.execute(
+        'ALTER TABLE files ADD COLUMN file_hash VARCHAR(32) UNIQUE AFTER business_type'
+      );
+      console.log('files表升级成功，已添加file_hash字段');
+    }
+    
+    connection.release();
+  } catch (error) {
+    console.error('升级files表失败:', error.message);
+  }
+}
+
 // 执行迁移
 async function migrate() {
   await createTables();
   await initData();
+  await upgradeFilesTable();
 }
 
 // 执行迁移

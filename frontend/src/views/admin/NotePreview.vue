@@ -36,8 +36,49 @@
       </template>
 
       <div class="preview-container">
-        <!-- 笔记预览内容 -->
-        <div v-if="note" class="preview-content">
+        <!-- 新增：目录侧边栏 -->
+        <div class="toc-sidebar" :class="{ 'toc-collapsed': !isTocOpen }">
+          <!-- 移动端目录折叠按钮 -->
+          <div class="toc-toggle" @click="toggleToc">
+            <el-icon>{{ isTocOpen ? ArrowLeft : Menu }}</el-icon>
+          </div>
+          
+          <div class="toc-header">
+            <h3>目录</h3>
+            <el-button 
+              type="text" 
+              size="small" 
+              @click="scrollToTop" 
+              class="toc-top-btn"
+            >
+              <el-icon><ArrowUp /></el-icon> 返回顶部
+            </el-button>
+          </div>
+          
+          <!-- 目录列表（动态生成） -->
+          <div class="toc-list" v-if="tocItems.length">
+            <ul class="toc-tree">
+              <li 
+                v-for="(item, index) in tocItems" 
+                :key="index" 
+                :class="['toc-item', { 'toc-active': activeTocIndex === index }]" 
+                @click="scrollToSection(item, index)"
+              >
+                <span :style="{ paddingLeft: `${(item.level - 1) * 16}px` }">
+                  {{ item.title }}
+                </span>
+              </li>
+            </ul>
+          </div>
+          <div class="toc-empty" v-else>
+            <el-empty description="文档无标题内容" size="small" />
+          </div>
+        </div>
+
+        <!-- 原有笔记内容区域（调整宽度适配目录） -->
+        <div class="content-container">
+          <!-- 笔记预览内容 -->
+          <div v-if="note" class="preview-content">
           <div class="note-meta">
             <span class="note-id">ID: {{ note.id }}</span>
             <span class="note-status">状态: <el-tag :type="getStatusType(note.status)">{{ getStatusText(note.status) }}</el-tag></span>
@@ -69,7 +110,15 @@
               <span class="note-update">更新: {{ formatDate(note.updated_at) }}</span>
             </div>
             <div v-if="note.cover_image" class="note-cover">
-              <el-image :src="`/uploads/${note.cover_image}`" fit="cover" class="cover-image" />
+              <el-image 
+                v-if="coverImageUrl"
+                :src="coverImageUrl"
+                fit="cover"
+                class="cover-image"
+                :loading="coverLoading"
+                :error="() => coverImageUrl = ''"
+              />
+              <el-skeleton v-else-if="coverLoading" :count="1" class="cover-skeleton" />
             </div>
           </div>
 
@@ -79,12 +128,13 @@
           </div>
 
           <!-- 笔记内容 -->
-          <div class="note-body" v-html="note.html_content" ref="noteBody" v-highlight></div>
+          <div class="note-body" v-html="note.html_content" ref="noteBodyRef" v-highlight></div>
         </div>
 
         <!-- 加载状态 -->
         <div v-else class="loading-container">
           <el-skeleton :count="1" />
+        </div>
         </div>
       </div>
     </el-card>
@@ -92,12 +142,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, nextTick, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { ArrowLeft, Edit } from '@element-plus/icons-vue'
+import { ArrowLeft, Edit, Menu, ArrowUp } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getNotePreview } from '@/api/note'
+import { getFileDataUrl } from '@/api/file'
 import '@/assets/css/code-highlight.css'
 
 // 导入完整的highlight.js库
@@ -105,6 +156,61 @@ import hljs from 'highlight.js';
 import Clipboard from 'clipboard';
 // 导入默认主题
 import 'highlight.js/styles/github-dark.css';
+
+// 手动添加行号的函数
+const addLineNumbersManually = (pre, code) => {
+  // 获取代码行数（过滤空行，避免多余行号）
+  const codeText = code.textContent.trim();
+  if (!codeText) return; // 空代码块不添加行号
+  const codeLines = codeText.split('\n');
+  const lineCount = codeLines.length;
+
+  // 1. 统一代码区域样式（确保行高、字体、内边距固定）
+  code.style.fontFamily = 'monospace'; // 强制等宽字体
+  code.style.fontSize = '0.875rem';    // 统一字体大小
+  code.style.lineHeight = '1.6';       // 统一行高（关键：行号与代码行高必须一致）
+  code.style.padding = '1rem 1rem 1rem 0'; // 右侧内边距，左侧留出行号空间
+  code.style.display = 'block';
+  code.style.whiteSpace = 'pre';       // 保留空格，避免代码换行混乱
+
+  // 2. 创建行号容器，与代码区域样式同步
+  const lineNumbersContainer = document.createElement('div');
+  lineNumbersContainer.className = 'line-numbers';
+  // 行号容器定位：与pre同高，左侧固定宽度
+  lineNumbersContainer.style.position = 'absolute';
+  lineNumbersContainer.style.left = '0';
+  lineNumbersContainer.style.top = '0';
+  lineNumbersContainer.style.bottom = '0';
+  lineNumbersContainer.style.width = '3rem'; // 行号区域宽度（与code padding-left对应）
+  // 行号样式：与代码完全同步
+  lineNumbersContainer.style.fontFamily = 'monospace';
+  lineNumbersContainer.style.fontSize = '0.875rem';
+  lineNumbersContainer.style.lineHeight = '1.6'; // 关键：行高与代码一致
+  lineNumbersContainer.style.padding = '1rem 0.5rem'; // 上下内边距与代码一致
+  lineNumbersContainer.style.borderRight = '1px solid #3e4451';
+  lineNumbersContainer.style.backgroundColor = 'rgba(27, 31, 35, 0.05)';
+  lineNumbersContainer.style.color = '#6b7280';
+  lineNumbersContainer.style.textAlign = 'right';
+  lineNumbersContainer.style.userSelect = 'none';
+  lineNumbersContainer.style.overflow = 'hidden'; // 隐藏超出容器的行号
+
+  // 3. 添加行号（确保每行高度与代码行一致）
+  for (let i = 1; i <= lineCount; i++) {
+    const lineNumber = document.createElement('div');
+    lineNumber.className = 'line-number';
+    lineNumber.textContent = i;
+    // 行号单行高度与代码行高同步
+    lineNumber.style.height = `${parseFloat(getComputedStyle(code).lineHeight)}px`;
+    lineNumbersContainer.appendChild(lineNumber);
+  }
+
+  // 4. 调整pre容器样式（确保行号容器能正常定位）
+  pre.style.position = 'relative';
+  pre.style.overflow = 'hidden'; // 避免行号或代码溢出
+
+  // 5. 添加行号容器到pre
+  pre.insertBefore(lineNumbersContainer, code);
+}
 
 // 支持的代码主题列表
 const themes = [
@@ -189,39 +295,36 @@ const escapeHtml = (html) => {
 // 切换主题方法
 const changeTheme = async (theme) => {
   const success = await loadTheme(theme);
-  if (success && note.value && note.value.html_content) {
-    // 获取笔记内容容器
-    const noteBody = document.querySelector('.note-body');
-    if (noteBody) {
-      const scrollTop = noteBody.scrollTop;
-      
-      // 移除所有现有高亮类
-      noteBody.querySelectorAll('pre code').forEach(block => {
-        block.className = block.className.replace(/hljs\s+/, '');
-      });
-      
-      // 重新应用高亮
-      noteBody.querySelectorAll('pre code').forEach(block => {
-        hljs.highlightElement(block);
-      });
-      
-      // 重新处理代码块结构
-      processHighlight(noteBody);
-      noteBody.scrollTop = scrollTop;
-    }
+  if (success && note.value && note.value.html_content && noteBodyRef.value) {
+    const noteBody = noteBodyRef.value;
+    const scrollTop = noteBody.scrollTop;
+    
+    // 1. 移除旧行号和高亮类
+    noteBody.querySelectorAll('pre').forEach(pre => {
+      const oldLineNumbers = pre.querySelector('.line-numbers');
+      if (oldLineNumbers) oldLineNumbers.remove(); // 移除旧行号容器
+      const code = pre.querySelector('code');
+      if (code) code.className = code.className.replace(/hljs\s+/, '');
+    });
+    
+    // 2. 重新高亮代码
+    noteBody.querySelectorAll('pre code').forEach(block => {
+      hljs.highlightElement(block);
+    });
+    
+    // 3. 重新添加行号（关键：确保新主题下对齐）
+    noteBody.querySelectorAll('pre').forEach(pre => {
+      const code = pre.querySelector('code');
+      if (code) addLineNumbersManually(pre, code);
+    });
+    
+    // 4. 重新初始化复制功能
+    initCopyFeature(noteBody);
+    noteBody.scrollTop = scrollTop;
   }
 };
 
-// 生成行号
-const createLineNumbers = (code) => {
-  const lines = code.split('\n').length;
-  let lineNumbers = '<div class="line-numbers">';
-  for (let i = 1; i <= lines; i++) {
-    lineNumbers += `<span class="line-number">${i}</span>`;
-  }
-  lineNumbers += '</div>';
-  return lineNumbers;
-};
+
 
 // 初始化复制功能
 const initCopyFeature = (el) => {
@@ -232,9 +335,9 @@ const initCopyFeature = (el) => {
       btn._clipboard.destroy();
     }
     
-    // 修改选择器以匹配新结构
+    // 适配插件生成的结构
     const clipboard = new Clipboard(btn, {
-      text: () => btn.nextElementSibling.nextElementSibling.querySelector('code').textContent
+      text: () => btn.previousElementSibling.textContent
     });
     
     // 存储实例用于后续销毁
@@ -253,70 +356,199 @@ const initCopyFeature = (el) => {
 };
 
 // 处理代码高亮的核心函数
-const processHighlight = (el) => {
-  // 选择所有pre标签，这些是代码块的容器
-  const preBlocks = el.querySelectorAll('pre');
+const processHighlight = async (el) => {
+  await nextTick();
   
+  // 清除旧按钮
+  el.querySelectorAll('.copy-btn').forEach(btn => btn.remove());
+  
+  // 处理代码块
+  const preBlocks = el.querySelectorAll('pre');
   preBlocks.forEach(pre => {
-    // 找到内部的code元素
+    // 确保有code元素
     let code = pre.querySelector('code');
     if (!code) {
-      // 如果没有code元素，创建一个
       code = document.createElement('code');
       code.textContent = pre.textContent;
       pre.innerHTML = '';
       pre.appendChild(code);
     }
     
-    // 保存原始类名和内容
-    const originalClasses = code.className;
-    const originalContent = code.textContent;
+    // 移除旧样式类
+    pre.className = pre.className.replace('code-block-wrapper', '');
+    
+    // 添加行号标识
+    pre.dataset.lineNumbers = "true";
+    
+    // 设置position为relative，确保复制按钮定位正确
+    pre.style.position = 'relative';
+    
+    // 清除已高亮标记，避免重复高亮警告
+    if (code.dataset.highlighted) {
+      delete code.dataset.highlighted;
+    }
     
     // 应用高亮
     hljs.highlightElement(code);
     
-    // 生成行号 - 修改行号生成逻辑
-    const lines = originalContent.split('\n');
-    let lineNumbersHTML = '';
-    lines.forEach((_, index) => {
-      lineNumbersHTML += `<div class="line-number">${index + 1}</div>`;
-    });
+    // 添加行号功能（使用内联方式实现，避免依赖外部插件）
+    try {
+      addLineNumbersManually(pre, code);
+    } catch (error) {
+      console.error('Failed to add line numbers manually:', error);
+    }
     
-    // 创建复制按钮
+    // 添加复制按钮
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
     copyBtn.textContent = '📋 复制';
-    
-    // 重构代码块结构 - 关键修改
-    pre.className = 'code-block-wrapper';
-    pre.innerHTML = `
-      <div class="code-container">
-        ${copyBtn.outerHTML}
-        <div class="line-numbers-container">${lineNumbersHTML}</div>
-        <div class="code-content"><code class="${originalClasses}">${code.innerHTML}</code></div>
-      </div>
-    `;
+    pre.appendChild(copyBtn);
   });
   
-  // 初始化复制功能
+  // 初始化复制功能（保持不变）
   initCopyFeature(el);
 };
+
+// 1. 提取文档标题生成目录（在笔记加载完成后调用）
+const generateToc = async () => {
+  await nextTick(); // 等待 DOM 渲染完成
+  const noteBody = noteBodyRef.value;
+  if (!noteBody) return;
+
+  // 提取 h1-h6 标题（排除笔记本身的标题，只取内容中的标题）
+  const headings = noteBody.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  const items = [];
+
+  headings.forEach(heading => {
+    // 给标题添加唯一 ID（用于锚点定位）
+    const headingId = `heading-${Date.now()}-${items.length}`;
+    heading.id = headingId;
+
+    // 记录标题层级（h1=1，h2=2...）
+    const level = parseInt(heading.tagName.replace('H', ''));
+    items.push({
+      title: heading.textContent.trim(),
+      level,
+      id: headingId,
+      element: heading // 存储 DOM 节点用于滚动计算
+    });
+  });
+
+  tocItems.value = items;
+  activeTocIndex.value = 0; // 默认激活第一个标题
+};
+
+// 2. 滚动到指定章节（目录点击事件）
+const scrollToSection = (item, index) => {
+  const element = document.getElementById(item.id);
+  if (element) {
+    // 平滑滚动到标题位置（偏移 20px 避免被顶部遮挡）
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    activeTocIndex.value = index;
+
+    // 移动端点击目录后自动折叠
+    if (window.innerWidth < 768) {
+      isTocOpen.value = false;
+    }
+  }
+};
+
+// 3. 监听滚动，更新当前激活目录（联动高亮）
+const handleScroll = () => {
+  if (tocItems.value.length === 0 || !noteBodyRef.value) return;
+
+  // 改为获取笔记内容容器的局部滚动位置
+  const noteBody = noteBodyRef.value;
+  const scrollTop = noteBody.scrollTop + 100; // 偏移量保持不变
+
+  // 遍历目录项，判断当前可视标题
+  for (let i = tocItems.value.length - 1; i >= 0; i--) {
+    const heading = tocItems.value[i].element;
+    // 计算标题相对于笔记容器的偏移量（而非全局偏移）
+    const offsetTop = heading.offsetTop;
+
+    if (scrollTop >= offsetTop) {
+      activeTocIndex.value = i;
+      break;
+    }
+  }
+};
+
+// 4. 移动端目录折叠/展开切换
+const toggleToc = () => {
+  isTocOpen.value = !isTocOpen.value;
+};
+
+// 5. 返回顶部
+const scrollToTop = () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+// 其他逻辑保持不变...
+const route = useRoute()
+const router = useRouter()
+const noteId = route.params.id
+
+const note = ref(null)
+const loading = ref(false)
+const longNoteMessage = ref('正在处理长笔记，请等待...')
+const coverImageUrl = ref('')
+const coverLoading = ref(false)
+
+
+
+// 获取封面图片URL的函数
+const fetchCoverImage = async (fileId) => {
+  if (!fileId) {
+    coverImageUrl.value = '';
+    return;
+  }
+  
+  coverLoading.value = true;
+  try {
+    const dataUrl = await getFileDataUrl(fileId);
+    coverImageUrl.value = dataUrl;
+  } catch (error) {
+    console.error('获取封面图片失败:', error);
+    coverImageUrl.value = '';
+  } finally {
+    coverLoading.value = false;
+  }
+};
+
+// 6. 优化：监听笔记加载完成，自动生成目录
+watch(note, async (newNote) => {
+  if (newNote && newNote.html_content) {
+    await nextTick(); // 等待 v-html 渲染完成
+    generateToc(); // 生成目录
+    await processHighlight(noteBodyRef.value); // 确保高亮处理生效
+    
+    // 获取封面图片
+    if (newNote.cover_image) {
+      await fetchCoverImage(newNote.cover_image);
+    } else {
+      coverImageUrl.value = '';
+    }
+  }
+}, { immediate: true });
 
 // 代码高亮指令
 const vHighlight = {
   mounted(el) {
-    processHighlight(el);
+    // 由于directive钩子不能是async，使用then处理异步操作
+    processHighlight(el).catch(err => {
+      console.error('Failed to process highlight in mounted:', err);
+    });
   },
   updated(el) {
-    // 先清除已有的行号和按钮，避免重复添加
+    // 先清除已有的按钮，避免重复添加
     const existingBtns = el.querySelectorAll('.copy-btn');
     existingBtns.forEach(btn => btn.remove());
     
-    const existingLineNumbers = el.querySelectorAll('.line-numbers');
-    existingLineNumbers.forEach(line => line.remove());
-    
-    // 重新处理高亮
-    processHighlight(el);
+    // 由于directive钩子不能是async，使用then处理异步操作
+    processHighlight(el).catch(err => {
+      console.error('Failed to process highlight in updated:', err);
+    });
   },
   unmounted(el) {
     // 清理clipboard实例，防止内存泄漏
@@ -329,14 +561,13 @@ const vHighlight = {
   }
 } 
 
-// 其他逻辑保持不变...
-const route = useRoute()
-const router = useRouter()
-const noteId = route.params.id
+// 新增：目录相关响应式变量
+const tocItems = ref([]); // 存储目录项（标题、层级、DOM节点）
+const activeTocIndex = ref(-1); // 当前激活的目录索引
+const isTocOpen = ref(true); // 移动端目录是否展开（默认展开）
+const noteBodyRef = ref(null); // 笔记内容容器引用
 
-const note = ref(null)
-const loading = ref(false)
-const longNoteMessage = ref('正在处理长笔记，请等待...')
+// 其他逻辑保持不变...
 
 const fetchNotePreview = async () => {
   loading.value = true
@@ -370,6 +601,47 @@ const pollLongNoteStatus = () => {
       if (res && res.code === 200 && res.data && !res.data.isLongNote && res.data.html_content) {
         note.value = res.data
         clearInterval(checkInterval)
+        
+        // 长笔记加载完成后重新处理高亮和行号对齐
+        await nextTick();
+        generateToc();
+        
+        const noteBody = noteBodyRef.value;
+        if (noteBody) {
+          // 移除旧行号和高亮类
+          noteBody.querySelectorAll('pre').forEach(pre => {
+            const oldLineNumbers = pre.querySelector('.line-numbers');
+            if (oldLineNumbers) oldLineNumbers.remove(); // 移除旧行号容器
+            const code = pre.querySelector('code');
+            if (code) {
+              code.className = code.className.replace(/hljs\s+/, '');
+              // 清除已高亮标记，避免重复高亮警告
+              if (code.dataset.highlighted) {
+                delete code.dataset.highlighted;
+              }
+            }
+          });
+          
+          // 重新高亮代码
+          noteBody.querySelectorAll('pre code').forEach(block => {
+            hljs.highlightElement(block);
+          });
+          
+          // 重新添加行号（确保对齐）
+          noteBody.querySelectorAll('pre').forEach(pre => {
+            const code = pre.querySelector('code');
+            if (code) {
+              try {
+                addLineNumbersManually(pre, code);
+              } catch (error) {
+                console.error('Failed to add line numbers manually:', error);
+              }
+            }
+          });
+          
+          // 重新初始化复制功能
+          initCopyFeature(noteBody);
+        }
       }
     } catch (error) {
       console.error('检查长笔记状态失败:', error)
@@ -418,6 +690,19 @@ onMounted(async () => {
   await loadTheme(selectedTheme.value);
   
   fetchNotePreview();
+  // 移除全局滚动监听，改为监听笔记容器滚动
+  if (noteBodyRef.value) {
+    noteBodyRef.value.addEventListener('scroll', handleScroll);
+  }
+})
+
+// 清理：移除滚动监听（防止内存泄漏）
+onUnmounted(() => {
+  // 移除笔记容器的滚动监听（防止内存泄漏）
+  if (noteBodyRef.value) {
+    noteBodyRef.value.removeEventListener('scroll', handleScroll);
+  }
+  // 原有清理逻辑（clipboard 销毁）保持不变...
 })
 </script>
 
@@ -465,10 +750,124 @@ onMounted(async () => {
 
 /* 预览容器布局 */
 .preview-container {
+  display: flex;
   height: calc(100vh - 180px);
+  gap: 16px;
 }
 
-/* 预览内容容器 */
+/* 2. 目录侧边栏样式 */
+.toc-sidebar {
+  width: 280px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+  overflow-y: auto;
+  transition: all 0.3s ease;
+  position: relative;
+  z-index: 10;
+}
+
+/* 3. 内容容器样式（调整宽度） */
+.content-container {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 4. 目录头部样式 */
+.toc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.toc-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.toc-top-btn {
+  color: #666;
+  font-size: 12px;
+}
+
+/* 5. 目录列表样式 */
+.toc-list {
+  padding: 0;
+}
+
+.toc-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* 目录项样式 */
+  .toc-item {
+    padding: 8px 12px; /* 增加内边距，提升点击区域 */
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    font-size: 14px;
+  }
+
+  /*  hover 样式：浅色背景，浅蓝文字 */
+  .toc-item:hover {
+    background-color: #f0f7ff;
+    color: #4285f4;
+  }
+
+  /*  active 样式：深色背景，深蓝文字，增加左边框，强化区分 */
+  .toc-item.toc-active {
+    background-color: #e8f0fe;
+    color: #1a73e8;
+    border-left: 3px solid #4285f4;
+    padding-left: 9px; /* 抵消左边框宽度，保持文字对齐 */
+    font-weight: 500;
+  }
+
+.toc-empty {
+  padding: 40px 0; /* 增加上下内边距 */
+  text-align: center;
+  color: #999; /* 增加文字颜色，提升辨识度 */
+}
+
+/* 6. 目录切换按钮 */
+.toc-toggle {
+  display: none; /* 默认隐藏，仅在移动端显示 */
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 60px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 在桌面端隐藏目录切换按钮 */
+@media (min-width: 769px) {
+  .toc-toggle {
+    display: none !important;
+  }
+}
+
+.toc-toggle:hover {
+  background: #f5f7fa;
+}
+
+/* 7. 预览内容容器 */
 .preview-content {
   height: 100%;
   overflow-y: auto;
@@ -606,63 +1005,51 @@ onMounted(async () => {
   height: 300px;
 }
 
-/* 完全重构代码块样式 */
-:deep(.code-block-wrapper) {
+/* 代码块基础样式 */
+:deep(pre) {
   position: relative;
   margin: 1rem 0 !important;
   border-radius: 6px;
   overflow: hidden;
+  padding: 0 !important;
 }
 
-/* 代码容器 - 关键：使用相对定位作为滚动参考 */
-:deep(.code-container) {
-  position: relative;
-  display: flex;
-}
-
-/* 行号容器 - 关键：固定定位，相对于父容器 */
-:deep(.line-numbers-container) {
+/* 自定义行号容器样式（与addLineNumbersManually函数同步） */
+:deep(.line-numbers) {
   position: absolute;
-  top: 0;
   left: 0;
+  top: 0;
   bottom: 0;
   width: 3rem;
   padding: 1rem 0.5rem;
-  background: rgba(0, 0, 0, 0.05);
+  border-right: 1px solid #3e4451;
+  background-color: rgba(27, 31, 35, 0.05);
+  color: #6b7280;
   text-align: right;
   user-select: none;
-  border-right: 1px solid rgba(0, 0, 0, 0.1);
-  overflow: hidden; /* 防止行号溢出 */
-}
-
-/* 行号样式 - 关键：设置固定高度与代码行匹配 */
-:deep(.line-number) {
-  color: #999;
+  overflow: hidden;
+  font-family: monospace;
   font-size: 0.875rem;
-  line-height: 1.5; /* 必须与代码行高完全一致 */
-  height: 1.5em; /* 强制行高匹配 */
+  line-height: 1.6;
+}
+
+/* 代码区域样式（确保左侧留出行号空间） */
+:deep(pre code) {
+  padding-left: 4rem !important; /* 3rem行号宽度 + 1rem间距，避免代码与行号重叠 */
   font-family: monospace;
-}
-
-/* 代码内容区域 - 关键：设置左边距为行号宽度 */
-:deep(.code-content) {
-  flex: 1;
-  margin-left: 3rem; /* 与行号容器宽度一致 */
-  overflow-x: auto; /* 仅代码区域横向滚动 */
-}
-
-/* 代码元素样式 - 确保与行号对齐 */
-:deep(.code-content code) {
+  font-size: 0.875rem;
+  line-height: 1.6;
   display: block;
-  padding: 1rem !important;
-  line-height: 1.5; /* 必须与行号行高完全一致 */
-  font-family: monospace;
   white-space: pre;
-  margin: 0;
-  min-height: 100%; /* 确保高度匹配 */
 }
 
-/* 调整复制按钮位置 */
+/* 行号单行样式 */
+:deep(.line-number) {
+  height: 1.6em; /* 与行高同步，确保每行对齐 */
+  box-sizing: border-box;
+}
+
+/* 复制按钮位置调整 */
 :deep(.copy-btn) {
   position: absolute;
   top: 0.5rem;
@@ -793,6 +1180,35 @@ onMounted(async () => {
   .preview-container {
     height: auto;
     min-height: calc(100vh - 240px);
+  }
+
+  /* 移动端目录适配 */
+  .toc-sidebar {
+    width: 240px;
+    position: fixed;
+    left: -240px; /* 默认隐藏 */
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+    border-radius: 0;
+    transition: left 0.3s ease; /* 增加过渡动画 */
+  }
+  
+  /* isTocOpen=true 时添加类，目录显示 */
+  .toc-sidebar:not(.toc-collapsed) {
+    left: 0;
+  }
+
+  /* 确保移动端显示切换按钮 */
+  .toc-toggle {
+    display: flex !important; /* 强制显示，避免被其他样式覆盖 */
+    right: -20px; /* 调整按钮位置，避免被目录遮挡 */
+  }
+
+  .content-container {
+    margin-left: 0;
+    transition: margin-left 0.3s ease;
   }
 
   .note-meta {

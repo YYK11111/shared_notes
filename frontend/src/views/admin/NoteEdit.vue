@@ -99,11 +99,8 @@
           <el-form-item label="内容" prop="content" :rules="[{ required: true, message: '请输入笔记内容', trigger: 'blur' }]">
             <div class="editor-container">
               <mavon-editor
-                ref="editor"
                 v-model="noteForm.content"
                 :toolbars="toolbars"
-                :ishljs="true"
-                @imgAdd="handleImgAdd"
                 style="min-height: 500px"
               />
             </div>
@@ -140,6 +137,7 @@
 </template>
 
 <script setup>
+// 导入Vue相关函数
 import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import dayjs from 'dayjs'
@@ -161,10 +159,9 @@ const imageUploadLoading = ref(false)
 const categories = ref([])
 const categoriesTree = ref([]) // 树形结构的分类数据
 const cascaderValue = ref(null) // 级联选择器的值
-const imageFileList = ref([])
 const noteFormRef = ref()
 const tagList = ref([])
-const editor = ref() // 添加editor引用
+const imageFileList = ref([])
 
 // mavon-editor 工具栏配置
 const toolbars = {
@@ -366,6 +363,8 @@ const fetchNoteDetail = async (retryCount = 0) => {
     // 2. 再处理封面图片（调用统一文件处理接口）
     await handleCoverImage(note.cover_image);
     
+
+    
   } catch (error) {
     
     // 尝试重试逻辑
@@ -525,9 +524,11 @@ const handleImageUpload = async (options) => {
     if (response.code === 200 && response.data?.fileId) {
       // 只保存fileId，不保存完整URL
       noteForm.cover_image = response.data.fileId;
-      // 更新imageFileList，使用完整URL进行预览
+      // 使用getFileDataUrl获取预览
+      const dataUrl = await getFileDataUrl(response.data.fileId);
+      // 更新imageFileList，使用dataUrl进行预览
       imageFileList.value = [{
-        url: `/file/get/${response.data.fileId}`,
+        url: dataUrl,
         status: 'success',
         uid: Date.now(),
         name: file.name
@@ -616,28 +617,7 @@ const handleRemoveImage = async () => {
   }
 }
 
-// 处理Markdown编辑器中的图片添加
-const handleImgAdd = async (pos, file) => {
-  try {
-    // 调用上传图片接口
-    const response = await uploadNoteImage(file);
-    
-    if (response.code === 200 && response.data?.fileId) {
-      // 使用fileId构建图片URL
-      const url = `/file/get/${response.data.fileId}`;
-      
-      // v3.0.2版本直接使用editor的方式插入图片
-      const markdown = noteForm.content;
-      noteForm.content = markdown.substring(0, pos) + `![图片](${url})` + markdown.substring(pos);
-      ElMessage.success('图片插入成功');
-    } else {
-      throw new Error(response.message || '图片上传失败');
-    }
-  } catch (error) {
-    ElMessage.error('图片上传失败：' + (error.message || '未知错误'));
-    console.error('编辑器图片上传失败:', error);
-  }
-}
+
 
 // 保存笔记
 const handleSaveNote = async () => {
@@ -670,19 +650,19 @@ const handleSaveNote = async () => {
   
   // 准备保存的数据 - 使用普通对象而不是FormData
   // 包含置顶、推荐等字段以确保它们不会被清除，但不允许前端修改
-  const formData = {
-    title: noteForm.title,
-    content: noteForm.content,
-    status: noteForm.status,
-    tags: JSON.stringify(tagList.value),
-    categoryIds: noteForm.category_id ? [noteForm.category_id] : [], // 转换为数组格式
-    isTop: noteForm.is_top,
-    isHomeRecommend: noteForm.is_home_recommend,
-    isWeekSelection: noteForm.is_week_selection,
-    isMonthRecommend: noteForm.is_month_recommend,
-    seo_description: noteForm.seo_description,
-    seo_keywords: noteForm.seo_keywords
-  };
+    const formData = {
+      title: noteForm.title,
+      content: noteForm.content,
+      status: noteForm.status,
+      tags: JSON.stringify(tagList.value),
+      categoryIds: noteForm.category_id ? [noteForm.category_id] : [], // 转换为数组格式
+      isTop: noteForm.is_top,
+      isHomeRecommend: noteForm.is_home_recommend,
+      isWeekSelection: noteForm.is_week_selection,
+      isMonthRecommend: noteForm.is_month_recommend,
+      seo_description: noteForm.seo_description,
+      seo_keywords: noteForm.seo_keywords
+    };
   
   // 特殊处理top_expire_time - 只在有值时添加
   if (noteForm.top_expire_time && noteForm.top_expire_time !== null) {
@@ -753,6 +733,8 @@ onBeforeUnmount(() => {
   // 不需要清除定时器，因为已经移除了自动保存功能
 })
 
+
+
 // 初始化页面数据
 onMounted(async () => {
   
@@ -765,10 +747,13 @@ onMounted(async () => {
       // 使用await确保fetchNoteDetail执行完成
       await fetchNoteDetail();
     }
+    
+
+    
   } catch (error) {
     ElMessage.error('页面加载失败，请刷新页面重试');
   }
-})
+});
 </script>
 
 <style scoped>
