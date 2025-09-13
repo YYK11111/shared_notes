@@ -302,6 +302,45 @@ const formatDuration = (seconds) => {
   }
 };
 
+// 转换ISO格式日期时间为MySQL兼容的datetime格式
+const convertIsoToMysqlDateTime = (dateTime) => {
+  if (!dateTime) return null;
+  
+  // 如果是字符串，转换为Date对象
+  const d = typeof dateTime === 'string' || typeof dateTime === 'number' ? new Date(dateTime) : dateTime;
+  
+  if (isNaN(d.getTime())) return null;
+  
+  // 格式化为YYYY-MM-DD HH:mm:ss格式
+  return formatDate(d, 'YYYY-MM-DD HH:mm:ss');
+};
+
+// 验证日期时间格式是否符合MySQL的datetime类型
+const isValidMysqlDateTime = (dateTime) => {
+  if (!dateTime) return true; // 允许空值
+  
+  // 检查是否是YYYY-MM-DD HH:mm:ss格式
+  const regex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+  if (!regex.test(dateTime)) return false;
+  
+  // 验证日期时间的有效性
+  const parts = dateTime.split(/[-\s:]/);
+  const year = parseInt(parts[0]);
+  const month = parseInt(parts[1]) - 1;
+  const day = parseInt(parts[2]);
+  const hours = parseInt(parts[3]);
+  const minutes = parseInt(parts[4]);
+  const seconds = parseInt(parts[5]);
+  
+  const date = new Date(year, month, day, hours, minutes, seconds);
+  return date.getFullYear() === year &&
+         date.getMonth() === month &&
+         date.getDate() === day &&
+         date.getHours() === hours &&
+         date.getMinutes() === minutes &&
+         date.getSeconds() === seconds;
+};
+
 module.exports = {
   formatDate,
   formatRelativeTime,
@@ -327,5 +366,7 @@ module.exports = {
   isSameYear,
   getQuarter,
   generateDateRange,
-  formatDuration
+  formatDuration,
+  convertIsoToMysqlDateTime,
+  isValidMysqlDateTime
 };

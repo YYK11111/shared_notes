@@ -69,7 +69,7 @@ const handleSearch = () => {
 
 <style scoped>
 .container {
-  width: 1200px;
+  width: 90%;
   margin: 0 auto;
   padding: 0 20px;
 }

@@ -148,7 +148,7 @@ import dayjs from 'dayjs'
 import { ArrowLeft, Edit, Menu, ArrowUp } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getNotePreview } from '@/api/note'
-import { getFileDataUrl } from '@/api/file'
+import { getFileObjectUrl } from '@/api/file'
 import '@/assets/css/code-highlight.css'
 
 // 导入完整的highlight.js库
@@ -494,6 +494,7 @@ const loading = ref(false)
 const longNoteMessage = ref('正在处理长笔记，请等待...')
 const coverImageUrl = ref('')
 const coverLoading = ref(false)
+let coverImageRevoke = null
 
 
 
@@ -506,8 +507,14 @@ const fetchCoverImage = async (fileId) => {
   
   coverLoading.value = true;
   try {
-    const dataUrl = await getFileDataUrl(fileId);
-    coverImageUrl.value = dataUrl;
+    // 先释放可能存在的旧URL
+    if (coverImageRevoke) {
+      coverImageRevoke();
+    }
+    
+    const { url, revoke } = await getFileObjectUrl(fileId);
+    coverImageUrl.value = url;
+    coverImageRevoke = revoke;
   } catch (error) {
     console.error('获取封面图片失败:', error);
     coverImageUrl.value = '';
@@ -702,6 +709,13 @@ onUnmounted(() => {
   if (noteBodyRef.value) {
     noteBodyRef.value.removeEventListener('scroll', handleScroll);
   }
+  
+  // 释放封面图片的临时URL
+  if (coverImageRevoke) {
+    coverImageRevoke();
+    coverImageRevoke = null;
+  }
+  
   // 原有清理逻辑（clipboard 销毁）保持不变...
 })
 </script>

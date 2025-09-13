@@ -3,14 +3,8 @@
     <!-- 轮播图 -->
     <div class="banner">
       <el-carousel height="300px">
-        <el-carousel-item>
-          <img src="https://fuss10.elemecdn.com/8/c4/e6/18059aeebefb6f2484a738c594f79126.png" alt="轮播图1" />
-        </el-carousel-item>
-        <el-carousel-item>
-          <img src="https://fuss10.elemecdn.com/d/2d/c5/957a0384f86a9e5e745d14a78b7d4630.png" alt="轮播图2" />
-        </el-carousel-item>
-        <el-carousel-item>
-          <img src="https://fuss10.elemecdn.com/5/87/a0/6b889336752702647a2714c8141f83a0.png" alt="轮播图3" />
+        <el-carousel-item v-for="(myCarouselItem, index) in carousels" :key="myCarouselItem?.file_id || 'default-' + index">
+          <img :src="myCarouselItem.imageUrl" :alt="`轮播图-${myCarouselItem?.file_id || 'default'}`" />
         </el-carousel-item>
       </el-carousel>
     </div>
@@ -117,8 +111,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { getRecommendNotes, getUserNoteList, getUserCategoryList, getHotNotes } from '@/api/user'
+import { getFileObjectUrl } from '@/api/file'
+import { getCarousels } from '@/api/public'
 import dayjs from 'dayjs'
 
 // 推荐笔记
@@ -126,6 +122,8 @@ const recommendNotes = ref([])
 // 最新笔记
 const latestNotes = ref([])
 // 分类列表
+// 存储图片URL释放函数
+const imageRevokeFunctions = ref({})
 const categories = ref([])
 // 热门笔记
 const hotNotes = ref([])
@@ -135,6 +133,9 @@ const pagination = ref({
   pageSize: 10,
   total: 0
 })
+
+// 轮播图数据 - 初始化为空数组确保始终有有效值
+const carousels = ref([])
 
 // 获取推荐笔记
 const fetchRecommendNotes = async () => {
@@ -210,12 +211,101 @@ const handleCurrentChange = (page) => {
   fetchLatestNotes()
 }
 
+// 获取轮播图 - 增加严格的数据验证以避免TypeError
+const fetchCarousels = async () => {
+  try {
+    // 确保carousels始终是数组
+    carousels.value = carousels.value || []
+    
+    // 获取轮播图数据
+    const result = await getCarousels()
+    
+    // 创建临时数组存储有效轮播图，避免直接修改原数组导致渲染问题
+    const validCarousels = []
+    
+    if (result?.code === 200 && result?.data && Array.isArray(result.data)) {
+      // 过滤出有效的carousel对象并设置imageUrl
+      for (const carousel of result.data) {
+        // 只处理存在的carousel对象
+        if (carousel && typeof carousel === 'object') {
+          const validCarousel = { ...carousel } // 深拷贝避免修改原始数据
+          
+          if (validCarousel.file_id) {
+              try {
+                // 获取图片临时URL并验证
+                console.log('开始获取文件ID:', validCarousel.file_id);
+                // 先释放可能存在的旧URL
+                if (imageRevokeFunctions.value[validCarousel.file_id]) {
+                  imageRevokeFunctions.value[validCarousel.file_id]();
+                }
+                
+                const { url, revoke } = await getFileObjectUrl(validCarousel.file_id)
+                imageRevokeFunctions.value[validCarousel.file_id] = revoke
+                
+                // 添加详细的日志记录
+                console.log('获取到的URL类型:', typeof url);
+                console.log('URL长度:', url?.length || 0);
+                console.log('URL前20个字符:', url?.substring(0, 20) || '无');
+                
+                // 设置图片URL
+                validCarousel.imageUrl = url;
+                console.log('成功设置imageUrl:', validCarousel.file_id);
+              } catch (error) {
+                console.error('获取轮播图文件失败:', error, '文件ID:', validCarousel.file_id);
+                validCarousel.imageUrl = 'https://fuss10.elemecdn.com/8/c4/e6/18059aeebefb6f2484a738c594f79126.png';
+              }
+            } else {
+              // 无file_id时使用默认图片
+              validCarousel.imageUrl = 'https://fuss10.elemecdn.com/8/c4/e6/18059aeebefb6f2484a738c594f79126.png'
+            }
+          
+          validCarousels.push(validCarousel)
+        }
+      }
+    }
+    
+    // 只有在获取到有效数据时才更新carousels，确保数据完整性
+    if (validCarousels.length > 0) {
+      carousels.value = validCarousels
+    } else {
+      console.warn('未获取到有效轮播图数据，使用默认轮播图')
+      carousels.value = [{ 
+        id: 'default', 
+        file_id: 'default', 
+        imageUrl: 'https://fuss10.elemecdn.com/8/c4/e6/18059aeebefb6f2484a738c594f79126.png' 
+      }]
+    }
+  } catch (error) {
+    console.error('获取轮播图数据异常:', error)
+    // 任何异常情况下都提供默认轮播图，确保UI始终正常显示
+    carousels.value = [{ 
+      id: 'default', 
+      file_id: 'default', 
+      imageUrl: 'https://fuss10.elemecdn.com/8/c4/e6/18059aeebefb6f2484a738c594f79126.png' 
+    }]
+  }
+}
+
 // 页面加载时获取数据
 onMounted(() => {
+  fetchCarousels()
   fetchRecommendNotes()
   fetchLatestNotes()
   fetchCategories()
   fetchHotNotes()
+})
+
+// 组件卸载时释放所有图片URL
+onUnmounted(() => {
+  // 释放所有临时URL
+  Object.values(imageRevokeFunctions.value).forEach(revoke => {
+    if (typeof revoke === 'function') {
+      revoke();
+    }
+  });
+  
+  // 清空缓存
+  imageRevokeFunctions.value = {};
 })
 </script>
 

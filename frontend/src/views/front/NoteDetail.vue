@@ -26,6 +26,19 @@
       <el-card v-if="note" class="note-content">
         <template #header>
           <div class="note-header">
+            <!-- 封面图片 -->
+            <div v-if="coverImageUrl || coverImageLoading" class="note-cover">
+              <img 
+                v-if="coverImageUrl" 
+                :src="coverImageUrl" 
+                alt="笔记封面" 
+                class="cover-image"
+              />
+              <div v-else class="cover-loading">
+                <el-icon><Loading /></el-icon>
+              </div>
+            </div>
+            
             <h1 class="note-title">{{ note.title }}</h1>
             <div class="note-meta">
               <span>{{ note.categories }}</span>
@@ -36,8 +49,30 @@
           </div>
         </template>
 
-        <!-- 笔记内容 -->
-        <div class="note-body" v-html="renderedContent" @click="handleImageClick"></div>
+        <!-- 长笔记处理提示 -->
+      <div v-if="isLongNote" class="long-note-tip">
+        <el-alert :title="longNoteMessage" type="info" show-icon></el-alert>
+      </div>
+      
+      <!-- 代码主题切换 -->
+      <div class="theme-selector" v-if="isLongNote === false">
+        <el-select 
+          v-model="selectedTheme" 
+          placeholder="选择代码主题" 
+          size="small" 
+          @change="changeTheme"
+        >
+          <el-option 
+            v-for="theme in themes" 
+            :key="theme.value" 
+            :label="theme.label" 
+            :value="theme.value">
+          </el-option>
+        </el-select>
+      </div>
+      
+      <!-- 笔记内容 -->
+      <div class="note-body" ref="noteBodyRef" v-html="renderedContent" @click="handleImageClick"></div>
 
         <!-- 操作按钮 -->
         <div class="note-actions">
@@ -145,15 +180,33 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, computed, nextTick, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getUserNoteDetail, likeNote, getComments, submitComment, likeComment, submitReply, getRelatedNotes } from '@/api/user'
+import { getUserNoteDetail, likeNote, getComments, submitComment, likeComment, submitReply, getRelatedNotes, getUserNotePreview } from '@/api/user'
+import { increaseNoteViewCount } from '@/api/note'
+import { getFileObjectUrl } from '@/api/file'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Star, StarFilled, Share, Warning, CopyDocument, Check, List, Menu, ArrowDown, ArrowRight, Close } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, ElSelect, ElOption } from 'element-plus'
+import { Star, StarFilled, Share, Warning, CopyDocument, Check, List, Menu, ArrowDown, ArrowRight, Close, ArrowLeft, ArrowUp, Loading } from '@element-plus/icons-vue'
 import axios from 'axios'
 import hljs from 'highlight.js'
-import 'highlight.js/styles/github-dark-dimmed.css' // 使用更接近CSDN的深色主题
+import Clipboard from 'clipboard'
+import 'highlight.js/styles/github-dark-dimmed.css' // 默认主题
+
+// 支持的代码主题列表
+const themes = [
+  { label: 'GitHub 暗色', value: 'github-dark' },
+  { label: 'GitHub 亮色', value: 'github' },
+  { label: 'Atom 暗色', value: 'atom-one-dark' },
+  { label: 'Atom 亮色', value: 'atom-one-light' },
+  { label: 'VSCode 风格', value: 'vs2015' },
+  { label: 'Monokai', value: 'monokai-sublime' },
+  { label: 'Solarized 暗色', value: 'solarized-dark' },
+  { label: 'Solarized 亮色', value: 'solarized-light' },
+];
+
+// 当前选中的主题
+const selectedTheme = ref('github-dark-dimmed');
 
 // 路由
 const route = useRoute()
@@ -163,6 +216,14 @@ const noteId = route.params.id
 const note = ref(null)
 const comments = ref([])
 const relatedNotes = ref([])
+const coverImageUrl = ref('')
+const coverImageLoading = ref(false)
+let coverImageRevoke = null
+
+// 长笔记处理状态
+const isLongNote = ref(false)
+const loadingHtmlContent = ref(false)
+const longNoteMessage = ref('正在处理长笔记，请等待...')
 
 // 用户交互状态
 const isLiked = ref(false)
@@ -186,8 +247,169 @@ const mobileTocVisible = ref(false)
 // 滚动到顶部按钮状态
 const showScrollTop = ref(false)
 
+
+
 // 默认头像
 const defaultAvatar = 'https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png'
+
+// 加载封面图片
+const loadCoverImage = async (fileId) => {
+  if (!fileId) {
+    coverImageUrl.value = ''
+    return
+  }
+  
+  coverImageLoading.value = true
+  try {
+    // 先释放可能存在的旧URL
+    if (coverImageRevoke) {
+      coverImageRevoke();
+    }
+    
+    const { url, revoke } = await getFileObjectUrl(fileId)
+    coverImageUrl.value = url
+    coverImageRevoke = revoke
+  } catch (error) {
+    console.error('加载封面图片失败:', error)
+    coverImageUrl.value = ''
+  } finally {
+    coverImageLoading.value = false
+  }
+}
+
+// 动态加载主题样式
+const loadTheme = async (themeName) => {
+  try {
+    console.log(`尝试加载主题: ${themeName}`);
+    
+    // 清除之前加载的主题样式
+    const existingStyles = document.querySelectorAll('link[rel="stylesheet"]');
+    existingStyles.forEach(style => {
+      if (style.href && style.href.includes('highlight.js/styles/')) {
+        style.remove();
+      }
+    });
+    
+    // 使用Promise确保CSS文件完全加载后再返回
+    return new Promise((resolve, reject) => {
+      // 使用CDN路径加载CSS文件，确保文件可访问
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/${themeName}.css`;
+      link.dataset.theme = 'highlight'; // 添加标识便于后续移除
+      
+      // 添加加载成功处理
+      link.onload = () => {
+        console.log(`主题加载成功: ${themeName}`);
+        resolve(true);
+      };
+      
+      // 添加错误处理
+      link.onerror = (error) => {
+        console.error('主题文件加载失败:', error);
+        reject(error);
+      };
+      
+      document.head.appendChild(link);
+    });
+  } catch (error) {
+    console.error('加载主题失败:', error);
+    return false;
+  }
+};
+
+// 切换主题方法
+const changeTheme = async (theme) => {
+  const success = await loadTheme(theme);
+  if (success && note.value && renderedContent.value && noteBodyRef.value) {
+    const noteBody = noteBodyRef.value;
+    const scrollTop = window.scrollY;
+    
+    // 1. 移除旧行号和高亮类
+    noteBody.querySelectorAll('pre').forEach(pre => {
+      const oldLineNumbers = pre.querySelector('.line-numbers');
+      if (oldLineNumbers) oldLineNumbers.remove(); // 移除旧行号容器
+      const code = pre.querySelector('code');
+      if (code) code.className = code.className.replace(/hljs\s+/, '');
+    });
+    
+    // 2. 重新高亮代码
+    noteBody.querySelectorAll('pre code').forEach(block => {
+      hljs.highlightElement(block);
+    });
+    
+    // 3. 重新添加行号
+    noteBody.querySelectorAll('pre').forEach(pre => {
+      const code = pre.querySelector('code');
+      if (code) addLineNumbersManually(pre, code);
+    });
+    
+    // 4. 重新初始化复制功能
+    initCopyFeature(noteBody);
+    window.scrollTo({ top: scrollTop });
+  }
+};
+
+// 手动添加行号的函数
+const addLineNumbersManually = (pre, code) => {
+  // 获取代码行数（过滤空行，避免多余行号）
+  const codeText = code.textContent.trim();
+  if (!codeText) return; // 空代码块不添加行号
+  const codeLines = codeText.split('\n');
+  const lineCount = codeLines.length;
+
+  // 1. 统一代码区域样式（确保行高、字体、内边距固定）
+  code.style.fontFamily = 'monospace'; // 强制等宽字体
+  code.style.fontSize = '0.875rem';    // 统一字体大小
+  code.style.lineHeight = '1.6';       // 统一行高（关键：行号与代码行高必须一致）
+  code.style.padding = '1rem 1rem 1rem 3.5rem'; // 右侧内边距，左侧留出行号空间（增加到3.5rem）
+  code.style.display = 'block';
+  code.style.whiteSpace = 'pre';       // 保留空格，避免代码换行混乱
+  code.style.boxSizing = 'border-box'; // 确保padding计算在宽度内
+
+  // 2. 创建行号容器，与代码区域样式同步
+  const lineNumbersContainer = document.createElement('div');
+  lineNumbersContainer.className = 'line-numbers';
+  // 行号容器定位：与pre同高，左侧固定宽度
+  lineNumbersContainer.style.position = 'absolute';
+  lineNumbersContainer.style.left = '0';
+  lineNumbersContainer.style.top = '0';
+  lineNumbersContainer.style.bottom = '0';
+  lineNumbersContainer.style.width = '3rem'; // 行号区域宽度
+  // 行号样式：与代码完全同步
+  lineNumbersContainer.style.fontFamily = 'monospace';
+  lineNumbersContainer.style.fontSize = '0.875rem';
+  lineNumbersContainer.style.lineHeight = '1.6'; // 关键：行高与代码一致
+  lineNumbersContainer.style.padding = '1rem 0.5rem'; // 上下内边距与代码一致
+  lineNumbersContainer.style.borderRight = '1px solid #3e4451';
+  lineNumbersContainer.style.backgroundColor = 'rgba(27, 31, 35, 0.05)';
+  lineNumbersContainer.style.color = '#6b7280';
+  lineNumbersContainer.style.textAlign = 'right';
+  lineNumbersContainer.style.userSelect = 'none';
+  lineNumbersContainer.style.overflow = 'hidden'; // 隐藏超出容器的行号
+  lineNumbersContainer.style.zIndex = '10'; // 确保行号在其他元素之上
+
+  // 3. 添加行号（确保每行高度与代码行一致）
+  for (let i = 1; i <= lineCount; i++) {
+    const lineNumber = document.createElement('span');
+    lineNumber.className = 'line-number';
+    lineNumber.textContent = i;
+    // 行号单行高度与代码行高同步
+    lineNumber.style.height = `${parseFloat(getComputedStyle(code).lineHeight)}px`;
+    lineNumber.style.display = 'block'; // 确保每个行号占一行
+    lineNumbersContainer.appendChild(lineNumber);
+  }
+
+  // 4. 调整pre容器样式（确保行号容器能正常定位）
+  pre.style.position = 'relative';
+  pre.style.overflow = 'hidden'; // 避免行号或代码溢出
+
+  // 5. 添加行号容器到pre
+  pre.insertBefore(lineNumbersContainer, code);
+};
+
+// 笔记内容引用
+const noteBodyRef = ref(null);
 
 // 生成目录ID
 const generateTocId = (title, level) => {
@@ -245,23 +467,10 @@ const renderedContent = computed(() => {
         // 生成唯一ID
         const codeId = `code-block-${Math.random().toString(36).substr(2, 9)}`;
         
-        // CSDN风格代码块结构
+        // 简化的代码块结构，不显示不需要的元素
         return `<div class="code-block-container">
           <div class="code-header">
-            <div class="code-tabs">
-              <div class="code-tab active">代码</div>
-              <div class="code-tab">原始</div>
-            </div>
-            <div class="code-info">
-              <span class="code-language">${lang}</span>
-            </div>
             <div class="code-actions">
-              <button class="code-line-numbers-btn" data-target="${codeId}" title="显示/隐藏行号">
-                <el-icon><List /></el-icon>
-              </button>
-              <button class="code-toggle-btn" data-target="${codeId}" title="折叠/展开代码">
-                <ArrowDown class="code-icon" />
-              </button>
               <button class="code-copy-btn" data-target="${codeId}" title="复制代码">
                 <CopyDocument class="code-icon" />
               </button>
@@ -269,9 +478,6 @@ const renderedContent = computed(() => {
           </div>
           <div class="code-content" id="${codeId}">
             <pre><code${attrs}>${code}</code></pre>
-          </div>
-          <div class="code-footer">
-            <span class="code-stats">${code.split('\n').filter(line => line.trim() !== '').length} 行</span>
           </div>
         </div>`;
       }
@@ -316,20 +522,7 @@ const renderedContent = computed(() => {
       
       return `<div class="code-block-container">
         <div class="code-header">
-          <div class="code-tabs">
-            <div class="code-tab active">代码</div>
-            <div class="code-tab">原始</div>
-          </div>
-          <div class="code-info">
-            <span class="code-language">${lang}</span>
-          </div>
           <div class="code-actions">
-            <button class="code-line-numbers-btn" data-target="${codeId}" title="显示/隐藏行号">
-              <el-icon><List /></el-icon>
-            </button>
-            <button class="code-toggle-btn" data-target="${codeId}" title="折叠/展开代码">
-                <ArrowDown class="code-icon" />
-              </button>
             <button class="code-copy-btn" data-target="${codeId}" title="复制代码">
               <CopyDocument class="code-icon" />
             </button>
@@ -337,9 +530,6 @@ const renderedContent = computed(() => {
         </div>
         <div class="code-content" id="${codeId}">
           <pre><code class="${langClass}">${escapedCode}</code></pre>
-        </div>
-        <div class="code-footer">
-          <span class="code-stats">${code.split('\n').filter(line => line.trim() !== '').length} 行</span>
         </div>
       </div>`;
     });
@@ -363,70 +553,68 @@ const renderedContent = computed(() => {
   }
 });
 
-// 代码块事件处理函数
-const handleCopyClick = (e) => {
-  const btn = e.currentTarget;
-  const codeId = btn.getAttribute('data-target');
-  const codeBlock = document.getElementById(codeId);
-  if (!codeBlock) return;
-  
-  const code = codeBlock.querySelector('code').textContent;
-  
-  navigator.clipboard.writeText(code).then(() => {
-    const originalIcon = btn.innerHTML;
-    btn.innerHTML = '<Check class="code-icon" />';
+// 初始化复制功能
+const initCopyFeature = (el) => {
+  const copyButtons = el.querySelectorAll('.copy-btn');
+  copyButtons.forEach(btn => {
+    // 先销毁已存在的clipboard实例，防止重复绑定
+    if (btn._clipboard) {
+      btn._clipboard.destroy();
+    }
     
-    setTimeout(() => {
-      btn.innerHTML = originalIcon;
-    }, 2000);
+    // 适配代码块结构
+    const clipboard = new Clipboard(btn, {
+      text: () => {
+        const pre = btn.closest('pre');
+        const code = pre.querySelector('code');
+        return code ? code.textContent : '';
+      }
+    });
     
-    // 显示复制成功提示
-    const tooltip = document.createElement('div');
-    tooltip.className = 'copy-tooltip';
-    tooltip.textContent = '复制成功';
-    btn.appendChild(tooltip);
+    // 存储实例用于后续销毁
+    btn._clipboard = clipboard;
     
-    setTimeout(() => {
-      tooltip.remove();
-    }, 1500);
-  }).catch(() => {
-    ElMessage.error('复制失败，请手动复制');
+    clipboard.on('success', () => {
+      btn.textContent = '✓ 已复制';
+      setTimeout(() => { btn.textContent = '📋 复制'; }, 2000);
+    });
+    
+    clipboard.on('error', () => {
+      btn.textContent = '复制失败';
+      setTimeout(() => { btn.textContent = '📋 复制'; }, 2000);
+    });
   });
 };
 
 const handleToggleClick = (e) => {
   const btn = e.currentTarget;
-  const codeId = btn.getAttribute('data-target');
-  const codeBlock = document.getElementById(codeId);
-  if (!codeBlock) return;
+  const pre = btn.closest('pre');
+  const codeContent = pre.closest('.code-content');
   
-  const isExpanded = !codeBlock.classList.contains('collapsed');
+  const isExpanded = !codeContent.classList.contains('collapsed');
   
   if (isExpanded) {
-    codeBlock.classList.add('collapsed');
+    codeContent.classList.add('collapsed');
     btn.innerHTML = '<ArrowRight class="code-icon" />';
   } else {
-    codeBlock.classList.remove('collapsed');
+    codeContent.classList.remove('collapsed');
     btn.innerHTML = '<ArrowDown class="code-icon" />';
   }
 };
 
 const handleLineNumbersClick = (e) => {
   const btn = e.currentTarget;
-  const codeId = btn.getAttribute('data-target');
-  const codeBlock = document.getElementById(codeId);
-  if (!codeBlock) return;
-  
-  const preElement = codeBlock.querySelector('pre');
-  const lineNumbers = codeBlock.querySelector('.line-numbers');
+  const pre = btn.closest('pre');
+  const lineNumbers = pre.querySelector('.line-numbers');
+  const code = pre.querySelector('code');
   
   if (lineNumbers) {
     if (lineNumbers.style.display === 'none') {
       lineNumbers.style.display = 'block';
-      preElement.style.paddingLeft = '50px';
+      code.style.paddingLeft = '4rem';
     } else {
       lineNumbers.style.display = 'none';
-      preElement.style.paddingLeft = '1rem';
+      code.style.paddingLeft = '1rem';
     }
   }
 };
@@ -461,67 +649,93 @@ const handleCodeTabClick = (e) => {
   }
 };
 
-// 处理代码高亮、行号显示、复制功能等
-const enhanceCodeBlocks = () => {
-  nextTick(() => {
-    // 先解绑所有旧事件
-    document.querySelectorAll('.code-copy-btn').forEach(btn => {
-      btn.removeEventListener('click', handleCopyClick);
-    });
-    document.querySelectorAll('.code-toggle-btn').forEach(btn => {
-      btn.removeEventListener('click', handleToggleClick);
-    });
-    document.querySelectorAll('.code-line-numbers-btn').forEach(btn => {
-      btn.removeEventListener('click', handleLineNumbersClick);
-    });
-    document.querySelectorAll('.code-tab').forEach(tab => {
-      tab.removeEventListener('click', handleCodeTabClick);
+// 处理代码高亮的核心函数
+const processHighlight = async (el) => {
+  await nextTick();
+  
+  // 清除旧按钮
+  el.querySelectorAll('.copy-btn').forEach(btn => btn.remove());
+  
+  // 处理代码块
+  const preBlocks = el.querySelectorAll('pre');
+  preBlocks.forEach(pre => {
+    // 确保有code元素
+    let code = pre.querySelector('code');
+    if (!code) {
+      code = document.createElement('code');
+      code.textContent = pre.textContent;
+      pre.innerHTML = '';
+      pre.appendChild(code);
+    }
+    
+    // 移除旧样式类
+    pre.className = pre.className.replace('code-block-wrapper', '');
+    
+    // 添加行号标识
+    pre.dataset.lineNumbers = "true";
+    
+    // 设置position为relative，确保复制按钮定位正确
+    pre.style.position = 'relative';
+    
+    // 清除已高亮标记，避免重复高亮警告
+    if (code.dataset.highlighted) {
+      delete code.dataset.highlighted;
+    }
+    
+    // 应用高亮
+    hljs.highlightElement(code);
+    
+    // 添加行号功能
+    try {
+      addLineNumbersManually(pre, code);
+    } catch (error) {
+      console.error('Failed to add line numbers manually:', error);
+    }
+    
+    // 添加复制按钮
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = '📋 复制';
+    // 设置按钮位置为代码块右上角
+    copyBtn.style.position = 'absolute';
+    copyBtn.style.top = '10px';
+    copyBtn.style.right = '10px';
+    copyBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+    copyBtn.style.border = 'none';
+    copyBtn.style.color = '#fff';
+    copyBtn.style.padding = '6px 12px';
+    copyBtn.style.borderRadius = '4px';
+    copyBtn.style.cursor = 'pointer';
+    copyBtn.style.fontSize = '12px';
+    copyBtn.style.zIndex = '20'; // 确保在其他元素之上
+    copyBtn.style.transition = 'all 0.2s ease';
+    copyBtn.style.opacity = '0'; // 初始隐藏
+    
+    pre.appendChild(copyBtn);
+    
+    // 鼠标悬停时显示复制按钮
+    pre.addEventListener('mouseenter', () => {
+      copyBtn.style.opacity = '1';
     });
     
-    // 对每个代码块应用语法高亮
-    document.querySelectorAll('pre code').forEach((block) => {
-      // 仅对非原始模式的代码块应用高亮
-      if (!block.classList.contains('raw-code')) {
-        hljs.highlightElement(block);
-      }
-      
-      // 添加行号
-      const preElement = block.parentElement;
-      let lineNumbers = preElement.querySelector('.line-numbers');
-      
-      // 如果还没有行号容器，则创建
-      if (!lineNumbers) {
-        const code = block.textContent;
-        const lines = code.split('\n').filter(line => line.trim() !== '').length;
-        lineNumbers = document.createElement('div');
-        lineNumbers.className = 'line-numbers';
-        
-        for (let i = 1; i <= lines; i++) {
-          const line = document.createElement('span');
-          line.textContent = i;
-          lineNumbers.appendChild(line);
-        }
-        
-        preElement.appendChild(lineNumbers);
-        preElement.classList.add('code-with-line-numbers');
-        preElement.style.paddingLeft = '50px';
-      }
-    });
-    
-    // 绑定新事件
-    document.querySelectorAll('.code-copy-btn').forEach(btn => {
-      btn.addEventListener('click', handleCopyClick);
-    });
-    document.querySelectorAll('.code-toggle-btn').forEach(btn => {
-      btn.addEventListener('click', handleToggleClick);
-    });
-    document.querySelectorAll('.code-line-numbers-btn').forEach(btn => {
-      btn.addEventListener('click', handleLineNumbersClick);
-    });
-    document.querySelectorAll('.code-tab').forEach(tab => {
-      tab.addEventListener('click', handleCodeTabClick);
+    pre.addEventListener('mouseleave', () => {
+      copyBtn.style.opacity = '0';
     });
   });
+  
+  // 初始化复制功能
+  initCopyFeature(el);
+};
+
+// 处理代码高亮、行号显示、复制功能等
+const enhanceCodeBlocks = async () => {
+  const contentElement = document.querySelector('.note-body');
+  if (!contentElement) return;
+  
+  await processHighlight(contentElement);
+  
+  // 初始化主题
+  await loadTheme(selectedTheme.value);
 };
 
 // 监听内容变化，重新处理代码块
@@ -541,7 +755,18 @@ const toggleMobileToc = () => {
 const scrollToSection = (id) => {
   const element = document.getElementById(id);
   if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // 添加80px偏移量，避免被顶部导航栏遮挡
+    const offset = 80;
+    const bodyRect = document.body.getBoundingClientRect().top;
+    const elementRect = element.getBoundingClientRect().top;
+    const elementPosition = elementRect - bodyRect;
+    const offsetPosition = elementPosition - offset;
+    
+    window.scrollTo({
+      top: offsetPosition,
+      behavior: 'smooth'
+    });
+    
     activeSectionId.value = id;
     
     if (mobileTocVisible.value) {
@@ -608,9 +833,94 @@ const handleImageClick = (e) => {
   }
 };
 
+// 获取笔记预览内容
+const fetchNotePreview = async () => {
+  loadingHtmlContent.value = true;
+  try {
+    const res = await getUserNotePreview(noteId);
+    if (res.code !== 200) {
+      throw new Error(res.msg || '获取笔记预览失败');
+    }
+    
+    const previewData = res.data;
+    
+    // 如果是长笔记，开始轮询
+    if (previewData.isLongNote) {
+      isLongNote.value = true;
+      pollLongNoteStatus();
+      return;
+    }
+    
+    // 更新笔记的 HTML 内容
+    if (note.value) {
+      note.value.htmlContent = previewData.html_content;
+    } else {
+      // 如果笔记数据还没加载，先存预览数据
+      note.value = {
+        htmlContent: previewData.html_content
+      };
+    }
+    
+    isLongNote.value = false;
+    
+    // 处理代码块和目录
+    nextTick(() => {
+      enhanceCodeBlocks();
+      updateToc();
+    });
+  } catch (error) {
+    console.error('获取笔记预览失败:', error.message || error);
+    // 如果预览接口失败，仍然尝试加载笔记详情
+  } finally {
+    loadingHtmlContent.value = false;
+  }
+};
+
+// 轮询长笔记状态
+const pollLongNoteStatus = () => {
+  const checkInterval = setInterval(async () => {
+    try {
+      const res = await getUserNotePreview(noteId);
+      if (res.code === 200 && res.data && !res.data.isLongNote && res.data.html_content) {
+        isLongNote.value = false;
+        clearInterval(checkInterval);
+        
+        if (note.value) {
+          note.value.htmlContent = res.data.html_content;
+        } else {
+          note.value = {
+            htmlContent: res.data.html_content
+          };
+        }
+        
+        // 处理代码块和目录
+        nextTick(() => {
+          enhanceCodeBlocks();
+          updateToc();
+        });
+      }
+    } catch (error) {
+      console.error('检查长笔记状态失败:', error);
+      clearInterval(checkInterval);
+    }
+  }, 2000);
+  
+  // 60秒后停止轮询
+  setTimeout(() => {
+    clearInterval(checkInterval);
+    if (isLongNote.value) {
+      longNoteMessage.value = '笔记处理时间较长，请稍后刷新页面查看';
+    }
+  }, 60000);
+};
+
 // 获取笔记详情
 const fetchNoteDetail = async () => {
   try {
+    // 先获取笔记预览内容
+    await fetchNotePreview();
+    
+    // 然后获取完整笔记详情
     const res = await getUserNoteDetail(noteId);
     if (res.code !== 200) {
       throw new Error(res.msg || '获取笔记详情失败');
@@ -621,21 +931,30 @@ const fetchNoteDetail = async () => {
       ...noteData,
       view_count: noteData.view_count || noteData.views || 0,
       categories: noteData.categories || noteData.category_name || '',
-      is_liked: noteData.is_liked || false
+      is_liked: noteData.is_liked || false,
+      // 保留已经加载的HTML内容
+      htmlContent: note.value?.htmlContent || noteData.htmlContent
     };
 
     note.value = normalizedNote;
     isLiked.value = normalizedNote.is_liked;
     likeIcon.value = normalizedNote.is_liked ? StarFilled : Star;
+    
+    // 加载封面图片
+    if (normalizedNote.cover_image) {
+      loadCoverImage(normalizedNote.cover_image)
+    }
 
     // 增加浏览量
     increaseViewCount();
 
-    // 处理代码块
-    nextTick(() => {
-      enhanceCodeBlocks();
-      updateToc();
-    });
+    // 如果HTML内容已经加载完成，处理代码块和目录
+    if (!isLongNote.value && !loadingHtmlContent.value) {
+      nextTick(() => {
+        enhanceCodeBlocks();
+        updateToc();
+      });
+    }
   } catch (error) {
     console.error('获取笔记详情失败:', error.message || error);
     ElMessage.error(error.message || '获取笔记详情失败，请刷新重试');
@@ -645,9 +964,9 @@ const fetchNoteDetail = async () => {
 // 增加浏览量
 const increaseViewCount = async () => {
   try {
-    const response = await axios.post(`/user/notes/${noteId}/view`);
+    const response = await increaseNoteViewCount(noteId);
     if (response.data && response.data.code === 200 && note.value) {
-      note.value.view_count += 1;
+      note.value.view_count = response.data.data.view_count;
     }
   } catch (error) {
     console.error('增加浏览量失败:', error);
@@ -834,6 +1153,12 @@ onUnmounted(() => {
   // 移除事件监听
   window.removeEventListener('scroll', handleScroll);
   
+  // 释放封面图片的临时URL
+  if (coverImageRevoke) {
+    coverImageRevoke();
+    coverImageRevoke = null;
+  }
+  
   // 清理代码块事件
   document.querySelectorAll('.code-copy-btn').forEach(btn => {
     btn.removeEventListener('click', handleCopyClick);
@@ -857,6 +1182,42 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 长笔记提示样式 */
+.long-note-tip {
+  margin-bottom: 20px;
+}
+
+/* 确保Alert组件样式正常应用 */
+:deep(.el-alert) {
+  margin-bottom: 16px;
+}
+
+/* 封面图片样式 */
+.note-cover {
+  width: 100%;
+  margin-bottom: 16px;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  aspect-ratio: 16/9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f0f0f0;
+}
+
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-loading {
+  color: #909399;
+  font-size: 24px;
+}
+
+/* 原有样式保持不变 */
 /* 主容器样式 */
 .note-detail {
   position: relative;
@@ -866,7 +1227,6 @@ onUnmounted(() => {
 }
 
 .note-container {
-  max-width: 1200px;
   margin: 0 auto;
   display: flex;
   gap: 20px;
@@ -1172,6 +1532,7 @@ onUnmounted(() => {
   overflow-x: auto;
   max-height: 600px;
   transition: max-height 0.3s ease;
+  position: relative;
 }
 
 .code-content.collapsed {
@@ -1192,7 +1553,7 @@ onUnmounted(() => {
 
 .code-content pre {
   margin: 0;
-  padding: 16px;
+  padding: 16px 16px 16px 60px; /* 为行号留出足够空间 */
   border-radius: 0;
   background-color: transparent;
   position: relative;
@@ -1235,7 +1596,8 @@ onUnmounted(() => {
   line-height: 1.6;
   user-select: none;
   text-align: right;
-  width: 35px;
+  width: 45px;
+  z-index: 15;
 }
 
 .line-numbers span {
@@ -1266,7 +1628,33 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 12px;
   white-space: nowrap;
-  z-index: 10;
+  z-index: 25;
+}
+
+/* 复制按钮样式 */
+.copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: rgba(0, 0, 0, 0.6);
+  border: none;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  z-index: 20;
+  transition: all 0.2s ease;
+  opacity: 0;
+}
+
+.code-content:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+  transform: translateY(-1px);
 }
 
 /* 操作按钮样式 */
@@ -1620,5 +2008,180 @@ onUnmounted(() => {
     right: auto;
     left: 0;
   }
+}
+
+/* 主题选择器样式 */
+.theme-selector {
+  margin: 15px 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.theme-selector .el-select {
+  width: 180px;
+}
+
+/* 代码块样式 */
+.note-body pre {
+  position: relative;
+  margin: 1.5em 0;
+  background-color: #282c34;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.note-body pre code {
+  display: block;
+  padding: 1rem 4rem 1rem 1rem;
+  overflow-x: auto;
+  color: #abb2bf;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  background-color: transparent !important;
+}
+
+/* 行号样式 */
+.note-body pre .line-numbers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3rem;
+  padding: 1rem 0.5rem;
+  border-right: 1px solid #3e4451;
+  background-color: rgba(27, 31, 35, 0.05);
+  color: #6b7280;
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* 复制按钮样式 */
+.note-body pre .copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 5px 10px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+
+.note-body pre .copy-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+/* 代码折叠样式 */
+.note-body .code-content.collapsed {
+  max-height: 200px;
+  overflow: hidden;
+  position: relative;
+}
+
+.note-body .code-content.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background: linear-gradient(to bottom, rgba(40, 44, 52, 0), rgba(40, 44, 52, 1));
+}
+
+/* 代码标签样式 */
+.code-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 0 15px;
+}
+
+.code-tab {
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #999;
+}
+
+.code-tab.active {
+  background-color: #409eff;
+  color: #fff;
+}
+
+/* 原始代码样式 */
+.raw-code {
+  background-color: #f6f8fa !important;
+  color: #333 !important;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+/* 目录样式优化 */
+.toc-item {
+  position: relative;
+}
+
+.toc-item.toc-level-1 {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.toc-item.toc-level-2 {
+  margin-bottom: 5px;
+}
+
+.toc-item.toc-level-3 {
+  margin-bottom: 3px;
+  font-size: 0.9rem;
+}
+
+.toc-item a {
+  display: block;
+  padding: 4px 0;
+  color: #666;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toc-item a:hover {
+  color: #409eff;
+  padding-left: 4px;
+}
+
+.toc-item a.toc-active {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.toc-item a.toc-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  background-color: #409eff;
+  border-radius: 3px;
+}
+
+/* 长笔记提示样式 */
+.long-note-tip {
+  margin-bottom: 20px;
+}
+
+:deep(.el-alert) {
+  margin-bottom: 16px;
 }
 </style>

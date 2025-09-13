@@ -194,6 +194,82 @@ async function createTables() {
       )
     `);
     
+    // 创建轮播图表
+    console.log('开始创建轮播图表...');
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS carousels (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL COMMENT '轮播图名称',
+        description TEXT COMMENT '描述说明',
+        image_url VARCHAR(255) NOT NULL COMMENT '图片地址',
+        title VARCHAR(255) COMMENT '标题文本',
+        subtitle TEXT COMMENT '副标题文本',
+        link_url VARCHAR(255) COMMENT '跳转链接',
+        link_target VARCHAR(10) DEFAULT '_self' COMMENT '链接打开方式',
+        status TINYINT DEFAULT 1 COMMENT '状态: 0禁用, 1启用',
+        sort INT DEFAULT 100 COMMENT '排序值',
+        start_time DATETIME COMMENT '生效开始时间',
+        end_time DATETIME COMMENT '生效结束时间',
+        position VARCHAR(50) DEFAULT 'home_top' COMMENT '展示位置',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // 创建曝光日志表
+    console.log('开始创建曝光日志表...');
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS exposure_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        user_ip VARCHAR(50),
+        exposure_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+      )
+    `);
+    
+    // 创建笔记浏览记录表
+    console.log('开始创建笔记浏览记录表...');
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS note_views (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        user_ip VARCHAR(100),
+        user_agent VARCHAR(255),
+        view_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+      )
+    `);
+    
+    // 创建搜索屏蔽笔记表
+    console.log('开始创建搜索屏蔽笔记表...');
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS search_blocked_notes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        note_title VARCHAR(255) NOT NULL,
+        blocked_by INT DEFAULT NULL,
+        blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_note_id (note_id),
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+        FOREIGN KEY (blocked_by) REFERENCES admins(id) ON DELETE SET NULL
+      )
+    `);
+    
+    // 创建搜索索引表
+    console.log('开始创建搜索索引表...');
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS search_index (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        note_id INT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FULLTEXT KEY title (title, content) WITH PARSER ngram
+      )
+    `);
+    
     console.log('所有表结构创建完成!');
     
     // 释放连接
@@ -225,7 +301,8 @@ async function initData() {
       { name: 'system_config', description: '系统配置' },
       { name: 'search_manage', description: '搜索管理' },
       { name: 'feedback_manage', description: '反馈管理' },
-      { name: 'system_monitor', description: '系统监控与日志' }
+      { name: 'system_monitor', description: '系统监控与日志' },
+      { name: 'carousel_manage', description: '轮播图管理' }
     ];
     
     for (const perm of permissions) {
@@ -236,12 +313,16 @@ async function initData() {
     }
     
     // 为超级管理员角色分配所有权限
-    const [permResults] = await connection.execute('SELECT id FROM permissions');
-    for (const perm of permResults) {
-      await connection.execute(
-        'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE role_id=role_id',
-        [roleId, perm.id]
-      );
+    try {
+      const [permResults] = await connection.execute('SELECT id FROM permissions');
+      for (const perm of permResults) {
+        await connection.execute(
+          'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE role_id=role_id',
+          [roleId, perm.id]
+        );
+      }
+    } catch (error) {
+      console.log('角色权限关联已存在，跳过重复关联');
     }
     
     // 插入默认管理员账户 (密码: admin123)
@@ -305,11 +386,38 @@ async function upgradeFilesTable() {
   }
 }
 
+// 创建文件资源关联表
+async function createFileResourceMappingTable() {
+  try {
+    const connection = await pool.getConnection();
+    
+    console.log('开始创建file_resource_mapping表...');
+    
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS file_resource_mapping (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        file_id VARCHAR(50) NOT NULL,
+        resource_id VARCHAR(50) NOT NULL,
+        resource_type VARCHAR(50) NOT NULL COMMENT '如: note, user, feedback等',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_file_resource (file_id, resource_id, resource_type)
+        -- 暂时移除外键约束，以确保表能创建成功
+      )
+    `);
+    
+    console.log('file_resource_mapping表创建完成!');
+    connection.release();
+  } catch (error) {
+    console.error('创建file_resource_mapping表失败:', error.message);
+  }
+}
+
 // 执行迁移
 async function migrate() {
   await createTables();
   await initData();
   await upgradeFilesTable();
+  await createFileResourceMappingTable();
 }
 
 // 执行迁移

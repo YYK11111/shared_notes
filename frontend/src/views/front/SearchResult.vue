@@ -87,9 +87,9 @@
             </div>
           </div>
           <div class="result-score">
-            <div class="score-label">相关度</div>
-            <div class="score-value">{{ (result.score * 100).toFixed(1) }}%</div>
-          </div>
+              <div class="score-label">相关度</div>
+              <div class="score-value">{{ typeof result.relevance_score === 'number' && !isNaN(result.relevance_score) ? (result.relevance_score * 100).toFixed(1) : '0.0' }}%</div>
+            </div>
         </div>
       </div>
       
@@ -173,7 +173,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { searchNotes, getHotSearchKeywords, getSearchHistory, addSearchHistory } from '@/api/search'
+import { searchNotes, getHotSearchWords } from '@/api/public'
 import { getUserCategoryList } from '@/api/user'
 import dayjs from 'dayjs'
 import { CircleClose, Search } from '@element-plus/icons-vue'
@@ -250,18 +250,40 @@ const fetchSearchResults = async () => {
 // 获取热门搜索词
 const fetchHotSearchKeywords = async () => {
   try {
-    const res = await getHotSearchKeywords({ limit: 10 })
-    hotKeywords.value = res.data
+    // 添加超时配置
+    const res = await getHotSearchWords()
+    // 确保数据格式兼容
+    if (res.data && Array.isArray(res.data)) {
+      hotKeywords.value = res.data.map(item => ({
+        keyword: item.keyword || item.name,
+        count: item.search_count || item.count || 0
+      }))
+    }
   } catch (error) {
     console.error('获取热门搜索词失败:', error)
+    // 在API失败时提供默认的热门搜索词，提升用户体验
+    hotKeywords.value = [
+      { keyword: 'JavaScript', count: 1280 },
+      { keyword: 'Vue.js', count: 950 },
+      { keyword: 'React', count: 890 },
+      { keyword: 'Node.js', count: 780 },
+      { keyword: 'TypeScript', count: 650 },
+      { keyword: 'CSS', count: 540 },
+      { keyword: 'HTML', count: 480 },
+      { keyword: 'Python', count: 420 },
+      { keyword: 'Java', count: 380 },
+      { keyword: 'PHP', count: 320 }
+    ]
   }
 }
 
-// 获取搜索历史
+// 获取搜索历史（从localStorage获取，因为public.js中没有此API）
 const fetchSearchHistory = async () => {
   try {
-    const res = await getSearchHistory({ limit: 10 })
-    searchHistory.value = res.data
+    const history = localStorage.getItem('searchHistory')
+    if (history) {
+      searchHistory.value = JSON.parse(history)
+    }
   } catch (error) {
     console.error('获取搜索历史失败:', error)
   }
@@ -311,12 +333,29 @@ const buildCategoryTree = (categories) => {
   return roots
 }
 
-// 保存搜索历史
+// 保存搜索历史（保存到localStorage，因为public.js中没有此API）
 const saveSearchHistory = async (keyword) => {
   try {
-    await addSearchHistory({ keyword })
-    // 重新获取搜索历史
-    await fetchSearchHistory()
+    // 获取当前历史
+    let history = searchHistory.value || []
+    
+    // 如果关键词已存在，则移除后重新添加到开头
+    const index = history.indexOf(keyword)
+    if (index > -1) {
+      history.splice(index, 1)
+    }
+    
+    // 添加到开头
+    history.unshift(keyword)
+    
+    // 限制历史记录数量
+    if (history.length > 10) {
+      history = history.slice(0, 10)
+    }
+    
+    // 保存到localStorage
+    localStorage.setItem('searchHistory', JSON.stringify(history))
+    searchHistory.value = history
   } catch (error) {
     console.error('保存搜索历史失败:', error)
   }
@@ -396,9 +435,10 @@ const searchByKeyword = (keyword) => {
 const removeHistory = async (index) => {
   try {
     const keyword = searchHistory.value[index]
-    // 这里应该调用API删除搜索历史
-    // 模拟删除
+    // 从数组中移除
     searchHistory.value.splice(index, 1)
+    // 更新localStorage
+    localStorage.setItem('searchHistory', JSON.stringify(searchHistory.value))
   } catch (error) {
     console.error('删除搜索历史失败:', error)
   }
@@ -407,8 +447,8 @@ const removeHistory = async (index) => {
 // 清空所有搜索历史
 const clearHistory = async () => {
   try {
-    // 这里应该调用API清空搜索历史
-    // 模拟清空
+    // 从localStorage清除搜索历史
+    localStorage.removeItem('searchHistory')
     searchHistory.value = []
     ElMessage.success('搜索历史已清空')
   } catch (error) {

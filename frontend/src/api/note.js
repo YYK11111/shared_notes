@@ -198,3 +198,11 @@ export const toggleNoteMonthRecommend = (id, isMonthRecommend) => {
     }
   })
 }
+
+// 增加笔记浏览量
+export const increaseNoteViewCount = (noteId) => {
+  return request({
+    url: `/user/notes/${noteId}/view`,
+    method: 'post'
+  })
+}

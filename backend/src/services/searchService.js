@@ -105,7 +105,7 @@ class SearchService {
     // 构建基础查询
     let queryStr = `
       SELECT 
-        n.id, n.title, n.content, n.cover_image, n.views, n.created_at, 
+        n.id, n.title, n.content, n.cover_image, n.view_count, n.created_at, 
         c.name as category_name,
         MATCH(n.title, n.content) AGAINST(?) AS relevance_score
       FROM notes n 
@@ -139,7 +139,7 @@ class SearchService {
     if (sortBy === 'newest') {
       orderBy = 'n.created_at DESC';
     } else if (sortBy === 'mostViewed') {
-      orderBy = 'n.views DESC';
+      orderBy = 'n.view_count DESC';
     }
 
     // 应用权重配置
@@ -404,16 +404,31 @@ class SearchService {
    */
   async logSearch(keyword) {
     try {
-      await pool.execute(
-        'INSERT INTO search_logs (keyword, search_time) VALUES (?, NOW())',
+      // 检查是否已存在该关键词的记录
+      const [existingLogs] = await query(
+        'SELECT * FROM search_logs WHERE keyword = ?',
         [keyword]
       );
+      
+      if (existingLogs.length > 0) {
+        // 如果已存在，则更新搜索次数和最后搜索时间
+        await query(
+          'UPDATE search_logs SET search_count = search_count + 1, last_search_time = NOW() WHERE keyword = ?',
+          [keyword]
+        );
+      } else {
+        // 如果不存在，则插入新记录
+        await query(
+          'INSERT INTO search_logs (keyword, search_count, last_search_time, created_at) VALUES (?, 1, NOW(), NOW())',
+          [keyword]
+        );
+      }
       
       // 清理相关缓存
       await deleteCache('hot_search_keywords');
     } catch (error) {
       console.error('记录搜索日志失败:', error);
-      throw error;
+      // 不抛出错误，避免影响搜索功能
     }
   }
 

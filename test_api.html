@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API连接测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            border-left: 4px solid #4CAF50;
+        }
+        .error {
+            border-left: 4px solid #f44336;
+        }
+        .test-item {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>API连接测试</h1>
+        
+        <div class="test-section">
+            <h2>后端基础连接测试</h2>
+            <div class="test-item">
+                <button onclick="testApi('http://localhost:3000/api/health', 'healthResult')">测试健康检查接口</button>
+                <div id="healthResult" class="result"></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>用户相关接口测试</h2>
+            <div class="test-item">
+                <button onclick="testApi('http://localhost:3000/api/user/notes', 'notesResult', true)">测试用户笔记接口</button>
+                <div id="notesResult" class="result"></div>
+            </div>
+            <div class="test-item">
+                <button onclick="testApi('http://localhost:3000/api/user/categories', 'categoriesResult', true)">测试用户分类接口</button>
+                <div id="categoriesResult" class="result"></div>
+            </div>
+            <div class="test-item">
+                <button onclick="testApi('http://localhost:3000/api/user/recommend-notes', 'recommendResult', true)">测试推荐笔记接口</button>
+                <div id="recommendResult" class="result"></div>
+            </div>
+            <div class="test-item">
+                <button onclick="testApi('http://localhost:3000/api/user/hot-notes', 'hotNotesResult', true)">测试热门笔记接口</button>
+                <div id="hotNotesResult" class="result"></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>前端代理配置测试</h2>
+            <p>如果前端开发服务器正在运行，可以尝试使用代理URL测试：</p>
+            <div class="test-item">
+                <button onclick="testApi('http://localhost:8080/api/health', 'proxyHealthResult')">测试代理健康检查</button>
+                <div id="proxyHealthResult" class="result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function testApi(url, resultId, needAuth = false) {
+            const resultElement = document.getElementById(resultId);
+            resultElement.innerHTML = '正在请求...';
+            resultElement.className = 'result';
+            
+            try {
+                const options = {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+                
+                // 添加授权头
+                if (needAuth) {
+                    options.headers['Authorization'] = 'Bearer test-token';
+                }
+                
+                console.log(`请求URL: ${url}`);
+                console.log('请求选项:', options);
+                
+                const startTime = Date.now();
+                const response = await fetch(url, options);
+                const endTime = Date.now();
+                
+                const responseTime = endTime - startTime;
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultElement.innerHTML = `✅ 请求成功 (${responseTime}ms)\n状态码: ${response.status}\n\n响应数据:\n${JSON.stringify(data, null, 2)}`;
+                    resultElement.classList.add('success');
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    resultElement.innerHTML = `❌ 请求失败 (${responseTime}ms)\n状态码: ${response.status}\n\n错误信息:\n${JSON.stringify(errorData, null, 2)}`;
+                    resultElement.classList.add('error');
+                }
+            } catch (error) {
+                resultElement.innerHTML = `❌ 请求异常\n错误信息: ${error.message}\n\n堆栈信息:\n${error.stack}`;
+                resultElement.classList.add('error');
+            }
+        }
+        
+        // 页面加载时自动测试健康检查接口
+        window.onload = function() {
+            testApi('http://localhost:3000/api/health', 'healthResult');
+        };
+    </script>
+</body>
+</html>

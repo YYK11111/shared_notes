@@ -8,111 +8,11 @@ const { successResponse: formatSuccess, errorResponse: formatError } = require('
 const xss = require('xss');
 const dbConfig = require('../../database/dbConfig');
 
-// 使用marked库处理Markdown转HTML，支持代码高亮
-const { marked } = require('marked');
-const crypto = require('crypto');
+// 导入Markdown服务
+const markdownService = require('../services/markdownService');
 
-// 配置marked，启用更多扩展语法支持
-marked.setOptions({
-  breaks: true, // 转换换行符为<br>
-  gfm: true, // 启用GitHub风格的Markdown
-  smartLists: true,
-  smartypants: true,
-  langPrefix: 'language-', // 为代码块添加语言前缀，便于前端高亮
-  tables: true, // 启用表格支持
-  taskLists: true, // 启用任务列表支持
-  mangle: false, // 不混淆电子邮件地址
-  headerIds: true, // 为标题添加id属性
-});
-
-// 创建Markdown转换缓存
-const markdownCache = new Map();
-const CACHE_EXPIRY = 3600000; // 缓存过期时间：1小时
-const MAX_CACHE_SIZE = 100; // 最大缓存条目数
-const LONG_NOTE_THRESHOLD = 10000; // 长笔记阈值：10000字符
-
-// 清理过期缓存的函数
-const cleanupCache = () => {
-  const now = Date.now();
-  let size = markdownCache.size;
-  
-  // 按插入顺序遍历缓存条目
-  for (const [key, { timestamp }] of markdownCache.entries()) {
-    // 删除过期条目
-    if (now - timestamp > CACHE_EXPIRY) {
-      markdownCache.delete(key);
-    }
-    // 如果缓存大小仍然超过限制，删除最早的条目
-    else if (size > MAX_CACHE_SIZE) {
-      markdownCache.delete(key);
-      size--;
-    } else {
-      break;
-    }
-  }
-};
-
-// 定期清理缓存（每10分钟）
-setInterval(cleanupCache, 10 * 60 * 1000);
-
-// 生成缓存键
-const generateCacheKey = (content) => {
-  return crypto.createHash('md5').update(content).digest('hex');
-};
-
-// 利用marked库的Markdown转HTML函数 - 带缓存
-const markdownToHtml = (markdown) => {
-  if (!markdown) return '';
-  
-  // 生成缓存键
-  const cacheKey = generateCacheKey(markdown);
-  
-  // 检查缓存
-  const cached = markdownCache.get(cacheKey);
-  if (cached) {
-    // 更新缓存时间戳
-    markdownCache.set(cacheKey, {
-      html: cached.html,
-      timestamp: Date.now()
-    });
-    return cached.html;
-  }
-  
-  // 使用xss库净化HTML，防止XSS攻击
-  const html = xss(marked.parse(markdown));
-  
-  // 存储到缓存
-  markdownCache.set(cacheKey, {
-    html,
-    timestamp: Date.now()
-  });
-  
-  // 如果缓存过大，清理过期缓存
-  if (markdownCache.size > MAX_CACHE_SIZE) {
-    cleanupCache();
-  }
-  
-  return html;
-};
-
-// 异步处理长笔记的Markdown转换
-const asyncMarkdownToHtml = (markdown) => {
-  return new Promise((resolve, reject) => {
-    try {
-      // 使用setImmediate将处理放入下一个事件循环
-      setImmediate(() => {
-        try {
-          const html = xss(marked.parse(markdown));
-          resolve(html);
-        } catch (error) {
-          reject(error);
-        }
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-};
+// 长笔记阈值：10000字符
+const LONG_NOTE_THRESHOLD = 10000;
 
 // 获取笔记的HTML预览（后台使用）
 router.get('/:id/preview', authMiddleware, async (req, res) => {
@@ -168,7 +68,7 @@ router.get('/:id/preview', authMiddleware, async (req, res) => {
       
       try {
         // 异步处理HTML转换
-        const htmlContent = await asyncMarkdownToHtml(note.content);
+        const htmlContent = await markdownService.asyncMarkdownToHtml(note.content);
         // 可以在这里添加逻辑，比如将转换后的HTML缓存到数据库
         console.log(`长笔记${id}转换完成`);
       } catch (error) {
@@ -176,7 +76,7 @@ router.get('/:id/preview', authMiddleware, async (req, res) => {
       }
     } else {
       // 短笔记使用同步缓存转换
-      note.html_content = markdownToHtml(note.content);
+      note.html_content = markdownService.markdownToHtml(note.content);
       note.isLongNote = false;
       
       return res.json(formatSuccess(note, '获取笔记预览成功'));
@@ -982,18 +882,5 @@ router.post('/stats/filter', authMiddleware, async (req, res) => {
   }
 });
 
-// 编辑器图片上传接口
-// 注意：此接口已废弃，前端应直接调用统一的文件上传接口 /file/upload
-// 这里保留此接口作为过渡，实际处理应在前端完成
-router.post('/upload-image', authMiddleware, async (req, res) => {
-  try {
-    // 提示前端使用统一文件接口
-    return res.status(400).json(formatError('此接口已废弃，请使用统一的文件上传接口 /file/upload', 400));
-    
-  } catch (error) {
-    console.error('图片上传接口处理失败:', error);
-    return res.status(500).json(formatError('图片上传失败，请稍后重试', 500));
-  }
-});
 
 module.exports = router;

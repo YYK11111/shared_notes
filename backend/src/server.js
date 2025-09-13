@@ -14,7 +14,7 @@ app.use(cors({
   exposedHeaders: ['X-Captcha-Id'], // 允许前端访问这个自定义响应头
   origin: '*', // 开发环境允许所有来源
   credentials: true, // 允许发送凭证
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(helmet());
@@ -51,9 +51,11 @@ async function initServer() {
     const routePermissionRoutes = require('./routes/routePermissionRoutes');
     const sensitiveWordRoutes = require('./routes/sensitiveWordRoutes');
     const fileRoutes = require('./routes/fileRoutes');
+    const carouselRoutes = require('./routes/admin/carouselRoutes');
 
     // 使用路由
     app.use('/api/auth', authRoutes);
+    app.use('/api/admin', carouselRoutes); // 先注册carouselRoutes
     app.use('/api/admin', adminRoutes);
     app.use('/api/notes', noteRoutes);
     app.use('/api/categories', categoryRoutes);

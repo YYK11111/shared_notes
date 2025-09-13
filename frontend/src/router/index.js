@@ -31,6 +31,11 @@ const staticRoutes = [
         name: 'Search',
         component: () => import('@/views/front/SearchResult.vue')
       },
+      {        
+        path: 'categories',
+        name: 'CategoryList',
+        component: () => import('@/views/front/CategoryList.vue')
+      },
       {
         path: 'feedback',
         name: 'Feedback',
@@ -197,6 +202,38 @@ const adminRoutes = {
         title: '敏感词管理',
         requiresAuth: true,
         permissions: ['admin:system:config']
+      }
+    },
+    
+    // 轮播图管理
+    {
+      path: 'carousels',
+      name: 'CarouselList',
+      component: () => import('@/views/admin/CarouselList.vue'),
+      meta: {
+        title: '轮播图管理',
+        requiresAuth: true,
+        permissions: ['admin:carousel:list']
+      }
+    },
+    {
+      path: 'carousels/create',
+      name: 'CarouselCreate',
+      component: () => import('@/views/admin/CarouselEdit.vue'),
+      meta: {
+        title: '创建轮播图',
+        requiresAuth: true,
+        permissions: ['admin:carousel:create']
+      }
+    },
+    {
+      path: 'carousels/edit/:id',
+      name: 'CarouselEdit',
+      component: () => import('@/views/admin/CarouselEdit.vue'),
+      meta: {
+        title: '编辑轮播图',
+        requiresAuth: true,
+        permissions: ['admin:carousel:edit']
       }
     }
   ]

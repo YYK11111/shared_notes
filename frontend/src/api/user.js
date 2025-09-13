@@ -122,3 +122,11 @@ export const getRelatedNotes = (noteId, params) => {
     params
   })
 }
+
+// 获取笔记预览
+export const getUserNotePreview = (id) => {
+  return request({
+    url: `/user/notes/${id}/preview`,
+    method: 'get'
+  })
+}

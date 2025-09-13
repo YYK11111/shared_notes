@@ -12,7 +12,7 @@ export const searchNotes = (params) => {
 // 获取热门搜索词
 export const getHotSearchWords = (params) => {
   return request({
-    url: '/search/hot-words',
+    url: '/public/search/hot',
     method: 'get',
     params
   })
@@ -24,7 +24,7 @@ export const getHotSearchKeywords = getHotSearchWords
 // 获取搜索历史
 export const getSearchHistory = () => {
   return request({
-    url: '/search/history',
+    url: '/public/search/hot',
     method: 'get'
   })
 }

@@ -10,10 +10,14 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 const { successResponse, errorResponse, notFoundResponse, serverErrorResponse } = require('../utils/responseFormatter');
 const { getFileUploadConfig } = require('../services/configService');
 
-// 确保上传目录存在
-const uploadDir = process.env.UPLOAD_DIR || 'uploads';
+// 确保上传目录存在 - 修复路径解析问题
+// 计算正确的上传目录路径：相对于backend目录
+const uploadDir = path.resolve(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
+  console.log(`创建上传目录: ${uploadDir}`);
+} else {
+  console.log(`上传目录已存在: ${uploadDir}`);
 }
 
 // 计算文件的哈希值（用于检测文件重复）
@@ -189,8 +193,11 @@ router.post('/upload', authMiddleware, async (req, res, next) => {
 }, handleUploadError, async (req, res) => {
   try {
     const file = req.file;
-    const fileId = req.fileId;
+    let fileId = req.fileId; // 使用let而不是const，以便后续可以更新
     const businessType = req.query.businessType || 'other';
+    // 获取资源ID和类型参数
+    const resourceId = req.query.resourceId || null;
+    const resourceType = req.query.resourceType || null;
 
     // 检查数据库是否支持file_hash字段
     let useFileHash = false;
@@ -207,10 +214,14 @@ router.post('/upload', authMiddleware, async (req, res, next) => {
       fileHash = calculateFileHash(fileBuffer);
       
       // 检查是否已存在相同哈希值的文件
-      existingFile = await query(
+      const fileResult = await query(
         'SELECT file_id FROM files WHERE file_hash = ?',
         [fileHash]
       );
+      
+      if (fileResult && fileResult.length > 0) {
+        existingFile = fileResult;
+      }
     } catch (error) {
       console.warn('数据库可能不支持file_hash字段，跳过文件重复检测:', error.message);
     }
@@ -218,7 +229,28 @@ router.post('/upload', authMiddleware, async (req, res, next) => {
     if (useFileHash && existingFile && existingFile.length > 0) {
       // 文件已存在，返回已存在的file_id，并删除刚上传的重复文件
       fs.unlinkSync(file.path);
-      return res.json(successResponse({ fileId: existingFile[0].file_id }, '文件已存在，无需重复上传'));
+      
+      // 更新req.fileId和fileId变量为已存在的文件ID，确保后续处理使用正确的ID
+      const existingFileId = existingFile[0].file_id;
+      req.fileId = existingFileId;
+      fileId = existingFileId; // 关键修复：更新fileId变量
+      
+      console.log(`检测到重复文件: 原始生成的ID=${req.fileId}，替换为已存在的ID=${existingFileId}`);
+      
+      // 如果提供了资源ID和类型，建立关联
+      if (resourceId && resourceType) {
+        try {
+          await query(
+            `INSERT INTO file_resource_mapping (file_id, resource_id, resource_type) 
+             VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE id=id`,
+            [existingFileId, resourceId, resourceType]
+          );
+        } catch (error) {
+          console.warn('建立文件与资源关联失败:', error.message);
+        }
+      }
+      
+      return res.json(successResponse({ fileId: existingFileId }, '文件已存在，无需重复上传'));
     }
 
     // 如果是图片文件，进行压缩处理
@@ -229,39 +261,50 @@ router.post('/upload', authMiddleware, async (req, res, next) => {
       file.size = stats.size;
     }
 
-    // 连接MySQL，插入文件元数据
-    let result;
-    if (useFileHash) {
-      result = await query(
-        `INSERT INTO files (file_id, file_name, file_type, file_size, storage_path, business_type, file_hash) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          fileId,
-          file.originalname,
-          file.mimetype,
-          file.size,
-          file.path, // multer返回的本地存储路径
-          businessType,
-          fileHash
-        ]
-      );
-    } else {
-      // 不包含file_hash字段的兼容模式
-      result = await query(
-        `INSERT INTO files (file_id, file_name, file_type, file_size, storage_path, business_type) 
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          fileId,
-          file.originalname,
-          file.mimetype,
-          file.size,
-          file.path, // multer返回的本地存储路径
-          businessType
-        ]
-      );
-    }
+    // 文件不重复，使用事务处理文件上传和关联操作
+    await transaction(async (connection) => {
+      // 连接MySQL，插入文件元数据
+      if (useFileHash) {
+        await executeInTransaction(connection, 
+          `INSERT INTO files (file_id, file_name, file_type, file_size, storage_path, business_type, file_hash) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            fileId,
+            file.originalname,
+            file.mimetype,
+            file.size,
+            file.path, // multer返回的本地存储路径
+            businessType,
+            fileHash
+          ]
+        );
+      } else {
+        // 不包含file_hash字段的兼容模式
+        await executeInTransaction(connection, 
+          `INSERT INTO files (file_id, file_name, file_type, file_size, storage_path, business_type) 
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            fileId,
+            file.originalname,
+            file.mimetype,
+            file.size,
+            file.path, // multer返回的本地存储路径
+            businessType
+          ]
+        );
+      }
 
-    // 返回file_id给前端，前端存到业务表（如用户表的avatar_id）
+      // 如果提供了资源ID和类型，建立关联
+      if (resourceId && resourceType) {
+        await executeInTransaction(connection, 
+          `INSERT INTO file_resource_mapping (file_id, resource_id, resource_type) 
+           VALUES (?, ?, ?)`,
+          [fileId, resourceId, resourceType]
+        );
+      }
+    });
+
+    // 返回file_id给前端
     res.json(successResponse({ fileId }, '上传成功'));
   } catch (err) {
     console.error('文件上传失败:', err);
@@ -280,23 +323,45 @@ router.get('/get/:fileId', async (req, res) => {
     
     // 查文件元数据
     const rows = await query(
-      'SELECT file_name, file_type, storage_path FROM files WHERE file_id = ?',
+      'SELECT file_name, file_type, storage_path, business_type FROM files WHERE file_id = ?',
       [fileId]
     );
 
-    if (rows.length === 0) return res.status(404).json(notFoundResponse('文件不存在'));
+    if (rows.length === 0) {
+      console.log(`文件ID ${fileId} 在数据库中不存在`);
+      return res.status(404).json(notFoundResponse('文件不存在'));
+    }
 
     const file = rows[0];
+    
+    // 构建正确的绝对文件路径 - 修复路径解析问题
+    // 注意：数据库中存储的storage_path可能是绝对路径或相对路径
+    let absoluteFilePath;
+    
+    // 检查数据库中的storage_path是否已经是绝对路径
+    if (path.isAbsolute(file.storage_path)) {
+      absoluteFilePath = file.storage_path;
+    } else {
+      // 如果是相对路径，则相对于正确的上传目录解析
+      // 注意：这里要考虑到原来存储路径的结构
+      const relativePath = file.storage_path.replace(/^uploads\\?/, ''); // 移除可能的uploads前缀
+      absoluteFilePath = path.join(uploadDir, relativePath);
+    }
+    
+    console.log(`尝试访问文件: ${absoluteFilePath}`);
+    
     // 检查文件是否存在
-    if (!fs.existsSync(file.storage_path)) {
+    if (!fs.existsSync(absoluteFilePath)) {
+      console.log(`文件不存在: ${absoluteFilePath}`);
       return res.status(404).json(notFoundResponse('文件不存在'));
     }
     
     // 设置响应头：支持预览（图片）和下载（其他文件）
     res.setHeader('Content-Type', file.file_type);
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.file_name)}"`);
+    
     // 读取本地文件并返回
-    const fileStream = fs.createReadStream(file.storage_path);
+    const fileStream = fs.createReadStream(absoluteFilePath);
     fileStream.pipe(res);
   } catch (err) {
     console.error('获取文件失败:', err);
@@ -337,6 +402,115 @@ router.delete('/delete/:fileId', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('删除文件失败:', err);
     res.status(500).json(serverErrorResponse('删除文件失败，请稍后重试'));
+  }
+});
+
+// 7. 建立文件与资源的关联
+router.post('/link', authMiddleware, async (req, res) => {
+  try {
+    const { fileId, resourceId, resourceType } = req.body;
+    
+    // 参数验证
+    if (!fileId || !resourceId || !resourceType) {
+      return res.status(400).json(errorResponse('fileId、resourceId和resourceType为必填参数'));
+    }
+    
+    // 检查文件是否存在
+    const fileCheck = await query('SELECT file_id FROM files WHERE file_id = ?', [fileId]);
+    if (fileCheck.length === 0) {
+      return res.status(404).json(notFoundResponse('文件不存在'));
+    }
+    
+    // 建立关联
+    await query(
+      `INSERT INTO file_resource_mapping (file_id, resource_id, resource_type) 
+       VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE id=id`,
+      [fileId, resourceId, resourceType]
+    );
+    
+    res.json(successResponse(null, '文件与资源关联成功'));
+  } catch (err) {
+    console.error('文件与资源关联失败:', err);
+    res.status(500).json(serverErrorResponse('关联失败，请稍后重试'));
+  }
+});
+
+// 8. 解除文件与资源的关联
+router.delete('/unlink', authMiddleware, async (req, res) => {
+  try {
+    const { fileId, resourceId, resourceType } = req.query;
+    
+    // 参数验证
+    if (!fileId || !resourceId || !resourceType) {
+      return res.status(400).json(errorResponse('fileId、resourceId和resourceType为必填参数'));
+    }
+    
+    // 解除关联
+    const result = await query(
+      'DELETE FROM file_resource_mapping WHERE file_id = ? AND resource_id = ? AND resource_type = ?',
+      [fileId, resourceId, resourceType]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json(notFoundResponse('关联关系不存在'));
+    }
+    
+    res.json(successResponse(null, '文件与资源解除关联成功'));
+  } catch (err) {
+    console.error('文件与资源解除关联失败:', err);
+    res.status(500).json(serverErrorResponse('解除关联失败，请稍后重试'));
+  }
+});
+
+// 9. 获取与资源关联的文件列表
+router.get('/list-by-resource', authMiddleware, async (req, res) => {
+  try {
+    const { resourceId, resourceType } = req.query;
+    
+    // 参数验证
+    if (!resourceId || !resourceType) {
+      return res.status(400).json(errorResponse('resourceId和resourceType为必填参数'));
+    }
+    
+    // 查询关联的文件
+    const files = await query(
+      `SELECT f.file_id, f.file_name, f.file_type, f.file_size, f.business_type, f.created_at 
+       FROM files f 
+       JOIN file_resource_mapping frm ON f.file_id = frm.file_id 
+       WHERE frm.resource_id = ? AND frm.resource_type = ?`,
+      [resourceId, resourceType]
+    );
+    
+    res.json(successResponse(files, '获取资源关联文件列表成功'));
+  } catch (err) {
+    console.error('获取资源关联文件列表失败:', err);
+    res.status(500).json(serverErrorResponse('获取失败，请稍后重试'));
+  }
+});
+
+// 10. 获取与文件关联的资源列表
+router.get('/list-by-file/:fileId', authMiddleware, async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    
+    // 检查文件是否存在
+    const fileCheck = await query('SELECT file_id FROM files WHERE file_id = ?', [fileId]);
+    if (fileCheck.length === 0) {
+      return res.status(404).json(notFoundResponse('文件不存在'));
+    }
+    
+    // 查询关联的资源
+    const resources = await query(
+      `SELECT resource_id, resource_type, created_at 
+       FROM file_resource_mapping 
+       WHERE file_id = ?`,
+      [fileId]
+    );
+    
+    res.json(successResponse(resources, '获取文件关联资源列表成功'));
+  } catch (err) {
+    console.error('获取文件关联资源列表失败:', err);
+    res.status(500).json(serverErrorResponse('获取失败，请稍后重试'));
   }
 });
 

@@ -45,6 +45,7 @@
               <el-menu-item index="roles">角色管理</el-menu-item>
               <el-menu-item index="routes">路由权限</el-menu-item>
               <el-menu-item index="/admin/sensitive-words">敏感词管理</el-menu-item>
+              <el-menu-item index="/admin/carousels">轮播图管理</el-menu-item>
             </el-sub-menu>
             
             <el-menu-item index="/admin/config">              <el-icon><Setting /></el-icon>              <span>系统配置</span>            </el-menu-item>
@@ -104,7 +105,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { HomeFilled, Document, Message, Setting, ArrowDown } from '@element-plus/icons-vue'
+import { HomeFilled, Document, Message, Setting, ArrowDown, Picture } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()

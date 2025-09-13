@@ -1,35 +1,40 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../database/db');
+const { query } = require('../database/dbConfig');
 const { successResponse: formatSuccess, errorResponse: formatError } = require('../utils/responseFormatter');
 const searchService = require('../services/searchService');
+// 导入Markdown服务
+const markdownService = require('../services/markdownService');
+
+// 长笔记阈值：10000字符
+const LONG_NOTE_THRESHOLD = 10000;
 
 // 获取首页数据
 router.get('/home', async (req, res) => {
   try {
-    const [systemConfigs] = await pool.execute('SELECT * FROM system_configs');
+    const [systemConfigs] = await query('SELECT * FROM system_configs');
     const configMap = {};
     systemConfigs.forEach(config => {
       configMap[config.key] = config.value;
     });
 
     // 获取热门笔记
-    const [hotNotes] = await pool.execute(
-      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_hot = 1 ORDER BY n.views DESC LIMIT 10'
+    const [hotNotes] = await query(
+      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_hot = 1 ORDER BY n.view_count DESC LIMIT 10'
     );
 
     // 获取本周精选
-    const [weeklyNotes] = await pool.execute(
+    const [weeklyNotes] = await query(
       'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_weekly_pick = 1 ORDER BY n.updated_at DESC LIMIT 15'
     );
 
     // 获取月度推荐
-    const [monthlyNotes] = await pool.execute(
+    const [monthlyNotes] = await query(
       'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND n.is_monthly_recommend = 1 ORDER BY n.updated_at DESC LIMIT 15'
     );
 
     // 获取高优先级分类（前8个）
-    const [topCategories] = await pool.execute(
+    const [topCategories] = await query(
       'SELECT c.*, COUNT(nc.note_id) as note_count FROM categories c LEFT JOIN note_categories nc ON c.id = nc.category_id LEFT JOIN notes n ON nc.note_id = n.id AND n.status = 1 WHERE c.status = 1 GROUP BY c.id, c.name, c.parent_id, c.status, c.priority, c.created_at, c.updated_at ORDER BY c.priority ASC LIMIT 8'
     );
 
@@ -51,7 +56,7 @@ router.get('/home', async (req, res) => {
 router.get('/categories', async (req, res) => {
   try {
     // 获取所有启用的分类
-    const [categories] = await pool.execute(
+    const [categories] = await query(
       'SELECT c.*, COUNT(nc.note_id) as note_count FROM categories c LEFT JOIN note_categories nc ON c.id = nc.category_id LEFT JOIN notes n ON nc.note_id = n.id AND n.status = 1 WHERE c.status = 1 GROUP BY c.id, c.name, c.parent_id, c.status, c.priority, c.created_at, c.updated_at ORDER BY c.priority ASC, c.id ASC'
     );
 
@@ -81,6 +86,26 @@ router.get('/categories', async (req, res) => {
   }
 });
 
+// 获取分类详情
+router.get('/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 检查分类是否存在且已启用
+    const [categories] = await query('SELECT * FROM categories WHERE id = ? AND status = 1', [id]);
+
+    if (categories.length === 0) {
+      return res.status(404).json(formatError('该分类不存在或已被禁用', 404));
+    }
+
+    return res.json(formatSuccess(categories[0], '获取分类详情成功'));
+
+  } catch (error) {
+    console.error('获取分类详情失败:', error);
+    return res.status(500).json(formatError('系统暂时无法访问，请稍后重试', 500));
+  }
+});
+
 // 获取分类下的笔记列表
 router.get('/categories/:id/notes', async (req, res) => {
   try {
@@ -89,7 +114,7 @@ router.get('/categories/:id/notes', async (req, res) => {
     const offset = (page - 1) * pageSize;
 
     // 检查分类是否存在且已启用
-    const [categories] = await pool.execute('SELECT * FROM categories WHERE id = ? AND status = 1', [id]);
+    const [categories] = await query('SELECT * FROM categories WHERE id = ? AND status = 1', [id]);
 
     if (categories.length === 0) {
       return res.status(404).json(formatError('该分类不存在或已被禁用', 404));
@@ -98,17 +123,17 @@ router.get('/categories/:id/notes', async (req, res) => {
     // 确定排序方式
     let orderBy = 'n.created_at DESC';
     if (sortBy === 'mostViewed') {
-      orderBy = 'n.views DESC';
+      orderBy = 'n.view_count DESC';
     }
 
     // 获取分类下的笔记
-    const [notes] = await pool.execute(
+    const [notes] = await query(
       `SELECT n.*, c.name as category_name FROM notes n JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 AND nc.category_id = ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
       [id, parseInt(pageSize), parseInt(offset)]
     );
 
     // 获取总条数
-    const [countResult] = await pool.execute(
+    const [countResult] = await query(
       'SELECT COUNT(DISTINCT n.id) as total FROM notes n JOIN note_categories nc ON n.id = nc.note_id WHERE n.status = 1 AND nc.category_id = ?',
       [id]
     );
@@ -129,13 +154,188 @@ router.get('/categories/:id/notes', async (req, res) => {
   }
 });
 
+// 用户端获取笔记的HTML预览
+router.get('/notes/:id/preview', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // 查询笔记基本信息
+    const [notes] = await query(
+      'SELECT id, title, content, status, cover_image, is_top, top_expire_time, is_home_recommend, is_week_selection, is_month_recommend, created_at, updated_at FROM notes WHERE id = ?',
+      [id]
+    );
+    
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
+    }
+    
+    const note = notes[0];
+    
+    // 检查笔记状态
+    if (note.status !== 1) {
+      return res.status(404).json(formatError('该笔记已下架，无法查看', 404));
+    }
+    
+    // 查询笔记所属分类
+    const [categories] = await query(
+      'SELECT c.id, c.name FROM note_categories nc JOIN categories c ON nc.category_id = c.id WHERE nc.note_id = ?',
+      [id]
+    );
+    
+    note.categories = categories;
+    
+    // 根据笔记长度选择处理方式
+    if (note.content && note.content.length > LONG_NOTE_THRESHOLD) {
+      // 长笔记使用异步处理，先返回基本信息
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write(JSON.stringify({
+        code: 200,
+        message: '正在处理长笔记，请等待...',
+        data: {
+          basicInfo: {
+            id: note.id,
+            title: note.title,
+            status: note.status,
+            cover_image: note.cover_image,
+            is_top: note.is_top,
+            top_expire_time: note.top_expire_time,
+            is_home_recommend: note.is_home_recommend,
+            is_week_selection: note.is_week_selection,
+            is_month_recommend: note.is_month_recommend,
+            created_at: note.created_at,
+            updated_at: note.updated_at,
+            categories: note.categories
+          },
+          isLongNote: true
+        }
+      }));
+      res.end();
+      
+      try {
+        // 异步处理HTML转换
+        const htmlContent = await markdownService.asyncMarkdownToHtml(note.content);
+        console.log(`用户端长笔记${id}转换完成`);
+      } catch (error) {
+        console.error(`用户端长笔记${id}转换失败:`, error);
+      }
+    } else {
+      // 短笔记使用同步缓存转换
+      note.html_content = markdownService.markdownToHtml(note.content);
+      note.isLongNote = false;
+      
+      return res.json(formatSuccess(note, '获取笔记预览成功'));
+    }
+  } catch (error) {
+    console.error('用户端获取笔记预览失败:', error);
+    return res.status(500).json(formatError('系统暂时无法访问，请稍后重试', 500));
+  }
+});
+
+// 增加笔记浏览量并记录浏览日志
+router.post('/notes/:id/view', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userIp = req.ip || req.connection.remoteAddress;
+    const sessionId = req.headers['x-session-id'] || (req.cookies ? req.cookies['session_id'] : null) || 'unknown';
+    
+    // 首先检查笔记是否存在且状态正常
+    const [notes] = await query(
+      'SELECT id, status FROM notes WHERE id = ?',
+      [id]
+    );
+    
+    if (notes.length === 0) {
+      return res.status(404).json(formatError('笔记不存在', 404));
+    }
+    
+    const note = notes[0];
+    
+    if (note.status !== 1) {
+      return res.status(404).json(formatError('该笔记已下架，无法查看', 404));
+    }
+    
+    // 开始事务
+    await query('START TRANSACTION');
+    
+    try {
+      // 更新notes表中的浏览量
+      await query('UPDATE notes SET view_count = view_count + 1 WHERE id = ?', [id]);
+      
+      // 向note_views表中插入浏览记录
+      await query(
+        'INSERT INTO note_views (note_id, user_ip, session_id) VALUES (?, ?, ?)',
+        [id, userIp, sessionId]
+      );
+      
+      // 提交事务
+      await query('COMMIT');
+      
+      // 查询更新后的浏览量
+      const [updatedNotes] = await query(
+        'SELECT view_count FROM notes WHERE id = ?',
+        [id]
+      );
+      
+      return res.json(formatSuccess({
+        view_count: updatedNotes[0].view_count
+      }, '浏览量增加成功'));
+    } catch (error) {
+      // 发生错误时回滚事务
+      await query('ROLLBACK');
+      throw error;
+    }
+  } catch (error) {
+    console.error('增加浏览量失败:', error);
+    return res.status(500).json(formatError('系统暂时无法访问，请稍后重试', 500));
+  }
+});
+
+// 获取用户笔记列表
+router.get('/notes', async (req, res) => {
+  try {
+    const { page = 1, pageSize = 10, sort = 'created_at', order = 'desc' } = req.query;
+    const offset = (page - 1) * pageSize;
+    
+    // 验证排序字段和排序顺序
+    const validSortFields = ['created_at', 'updated_at', 'view_count', 'like_count'];
+    const validOrders = ['asc', 'desc'];
+    
+    const sortField = validSortFields.includes(sort) ? sort : 'created_at';
+    const sortOrder = validOrders.includes(order.toLowerCase()) ? order.toUpperCase() : 'DESC';
+    
+    // 获取笔记列表
+    const [notes] = await query(
+      `SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 ORDER BY n.${sortField} ${sortOrder} LIMIT ? OFFSET ?`,
+      [parseInt(pageSize), parseInt(offset)]
+    );
+    
+    // 获取总条数
+    const [countResult] = await query(
+      'SELECT COUNT(*) as total FROM notes WHERE status = 1'
+    );
+    const total = countResult[0].total;
+    
+    return res.json(formatSuccess({
+      list: notes,
+      total,
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      totalPages: Math.ceil(total / pageSize)
+    }, '获取笔记列表成功'));
+    
+  } catch (error) {
+    console.error('获取笔记列表失败:', error);
+    return res.status(500).json(formatError('系统暂时无法访问，请稍后重试', 500));
+  }
+});
+
 // 获取笔记详情
 router.get('/notes/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
     // 获取笔记详情
-    const [notes] = await pool.execute(
+    const [notes] = await query(
       'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.id = ?',
       [id]
     );
@@ -157,17 +357,17 @@ router.get('/notes/:id', async (req, res) => {
     }
 
     // 更新阅读量
-    await pool.execute('UPDATE notes SET views = views + 1 WHERE id = ?', [id]);
-    note.views += 1;
+    await query('UPDATE notes SET view_count = view_count + 1 WHERE id = ?', [id]);
+    note.view_count += 1;
 
     // 获取上一篇和下一篇 - 注意：由于多对多关系，这里简化处理，仅考虑状态为1的笔记
-    const [prevNext] = await pool.execute(
+    const [prevNext] = await query(
       'SELECT id, title FROM notes WHERE status = 1 AND id < ? ORDER BY id DESC LIMIT 1',
       [id]
     );
     note.prevNote = prevNext.length > 0 ? prevNext[0] : null;
 
-    const [nextPrev] = await pool.execute(
+    const [nextPrev] = await query(
       'SELECT id, title FROM notes WHERE status = 1 AND id > ? ORDER BY id ASC LIMIT 1',
       [id]
     );
@@ -208,7 +408,8 @@ router.get('/search', async (req, res) => {
 // 获取热门搜索词
 router.get('/hot-searches', async (req, res) => {
   try {
-    const [hotSearches] = await pool.execute(
+// 获取热门搜索词
+    const [hotSearches] = await query(
       'SELECT keyword, COUNT(*) as count FROM search_logs WHERE search_time >= DATE_SUB(NOW(), INTERVAL 7 DAY) GROUP BY keyword ORDER BY count DESC LIMIT 10'
     );
 
@@ -235,7 +436,7 @@ router.post('/feedback', async (req, res) => {
     }
 
     // 创建反馈
-    const [result] = await pool.execute(
+    const [result] = await query(
       'INSERT INTO feedback (type, content, contact, status, created_at) VALUES (?, ?, ?, ?, NOW())',
       [type, content, contact || null, 0] // 0表示待处理
     );
@@ -251,7 +452,8 @@ router.post('/feedback', async (req, res) => {
 // 获取系统配置
 router.get('/system-configs', async (req, res) => {
   try {
-    const [configs] = await pool.execute('SELECT * FROM system_configs');
+// 获取系统配置
+    const [configs] = await query('SELECT * FROM system_configs');
     const configMap = {};
 
     configs.forEach(config => {
@@ -266,13 +468,32 @@ router.get('/system-configs', async (req, res) => {
   }
 });
 
+// 获取热门笔记
+router.get('/hot-notes', async (req, res) => {
+  try {
+    const { limit = 5 } = req.query;
+    
+    // 查询浏览量最大的热门笔记（状态为发布，按浏览量排序）
+    const [hotNotes] = await query(
+      'SELECT n.*, c.name as category_name FROM notes n LEFT JOIN note_categories nc ON n.id = nc.note_id LEFT JOIN categories c ON nc.category_id = c.id WHERE n.status = 1 ORDER BY n.view_count DESC LIMIT ?',
+      [parseInt(limit)]
+    );
+
+    return res.json(formatSuccess(hotNotes, '获取热门笔记成功'));
+
+  } catch (error) {
+    console.error('获取热门笔记失败:', error);
+    return res.status(500).json(formatError('系统暂时无法访问，请稍后重试', 500));
+  }
+});
+
 // 获取推荐笔记
 router.get('/recommend-notes', async (req, res) => {
   try {
     const { limit = 5 } = req.query;
     
     // 查询首页推荐笔记，优先显示置顶的，然后是设置了首页推荐的
-    const [recommendNotes] = await pool.execute(
+    const [recommendNotes] = await query(
       `SELECT n.*, c.name as category_name 
        FROM notes n 
        LEFT JOIN note_categories nc ON n.id = nc.note_id 
@@ -335,7 +556,7 @@ router.get('/notes/:id/related', async (req, res) => {
     const { limit = 5 } = req.query;
 
     // 查询相关笔记 - 基于相同分类
-    const [relatedNotes] = await pool.execute(
+    const [relatedNotes] = await query(
       `SELECT n.*, c.name as category_name 
        FROM notes n 
        LEFT JOIN note_categories nc ON n.id = nc.note_id 

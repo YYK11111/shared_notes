@@ -1,9 +1,12 @@
+const path = require('path');
 const dotenv = require('dotenv');
 const mysql = require('mysql2/promise');
 // 移除对logger的依赖，打破循环引用
 // const logger = require('../utils/logger');
 
-dotenv.config();
+// 从正确的绝对路径加载.env文件
+const envPath = path.join(__dirname, '../../.env');
+dotenv.config({ path: envPath });
 
 // 创建数据库连接池
 const pool = mysql.createPool({

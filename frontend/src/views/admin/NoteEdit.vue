@@ -144,7 +144,7 @@ import dayjs from 'dayjs'
 import { Check, ArrowLeft, Plus, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElProgress } from 'element-plus'
 import { createNote, updateNote, getNoteDetail } from '@/api/note'
-import { uploadNoteImage, deleteFile, getFileDataUrl } from '@/api/file'
+import { uploadNoteImage, deleteFile, getFileObjectUrl } from '@/api/file'
 import { getCategoryList } from '@/api/category'
 
 // 路由信息
@@ -216,6 +216,9 @@ const noteForm = reactive({
   updated_at: new Date()
 })
 
+// 存储图片URL的revoke函数
+let imageRevoke = null
+
 // 编译Markdown (使用mavon-editor的内置功能，此处简化实现)
 const compiledMarkdown = computed(() => {
   if (!noteForm.content) return ''
@@ -286,12 +289,18 @@ const handleCoverImage = async (coverImageId) => {
   }
   
   try {
-    // 调用getFileDataUrl获取文件Data URL
-    const dataUrl = await getFileDataUrl(coverImageId);
+    // 先释放可能存在的旧URL
+    if (imageRevoke) {
+      imageRevoke();
+    }
+    
+    // 调用getFileObjectUrl获取文件临时URL
+    const { url, revoke } = await getFileObjectUrl(coverImageId);
+    imageRevoke = revoke;
     
     // 创建图片文件对象
     imageFileList.value = [{
-      url: dataUrl,
+      url: url,
       status: 'success',
       uid: Date.now(),
       name: `cover_${coverImageId}`,
@@ -524,11 +533,18 @@ const handleImageUpload = async (options) => {
     if (response.code === 200 && response.data?.fileId) {
       // 只保存fileId，不保存完整URL
       noteForm.cover_image = response.data.fileId;
-      // 使用getFileDataUrl获取预览
-      const dataUrl = await getFileDataUrl(response.data.fileId);
-      // 更新imageFileList，使用dataUrl进行预览
+      // 先释放可能存在的旧URL
+      if (imageRevoke) {
+        imageRevoke();
+      }
+      
+      // 使用getFileObjectUrl获取预览
+      const { url, revoke } = await getFileObjectUrl(response.data.fileId);
+      imageRevoke = revoke;
+      
+      // 更新imageFileList，使用url进行预览
       imageFileList.value = [{
-        url: dataUrl,
+        url: url,
         status: 'success',
         uid: Date.now(),
         name: file.name
@@ -731,6 +747,12 @@ const hasUnsavedChanges = () => {
 // 组件卸载前
 onBeforeUnmount(() => {
   // 不需要清除定时器，因为已经移除了自动保存功能
+  
+  // 释放图片临时URL
+  if (imageRevoke) {
+    imageRevoke();
+    imageRevoke = null;
+  }
 })
 
 
